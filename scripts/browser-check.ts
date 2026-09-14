@@ -141,6 +141,7 @@ try {
       throw new Error('Completed login code remained visible.');
     await clickText('ターミナル');
     await until(`!!document.querySelector('.native-launch')`);
+    await clickText('終了した実行を表示');
     await evaluate(`document.querySelector('.native-launch').open=true`);
     await until(
       `document.querySelector('.terminal-footer')?.textContent.includes('completed') && document.querySelector('.run-output')?.textContent.includes('resumed after login')`,
@@ -183,8 +184,39 @@ try {
     { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
     sessionId,
   );
-  await Bun.sleep(700);
+  await until(`document.querySelector('.xterm-rows')?.textContent.includes('browser-terminal-ok')`);
+  await evaluate(`document.querySelector('button[aria-label="貼り付け"]').click()`);
+  await setValue('.terminal-paste textarea', 'printf "browser-paste-ok"');
+  await evaluate(`document.querySelector('.terminal-paste').requestSubmit()`);
+  await command(
+    'Input.dispatchKeyEvent',
+    { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+    sessionId,
+  );
+  await command(
+    'Input.dispatchKeyEvent',
+    { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+    sessionId,
+  );
+  await until(`document.querySelector('.xterm-rows')?.textContent.includes('browser-paste-ok')`);
+  await evaluate(`document.querySelector('button[aria-label="文字を大きく"]').click()`);
+  await evaluate(`document.querySelector('button[aria-label="文字を小さく"]').click()`);
+  await evaluate(`document.querySelector('button[aria-label="端末へ再接続"]').click()`);
+  await until(`document.querySelector('.terminal-connection')?.textContent === '接続済み'`);
+  await until(`document.querySelector('.xterm-rows')?.textContent.includes('browser-paste-ok')`);
   await screenshot('terminal');
+  await command(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    sessionId,
+  );
+  await until(`document.documentElement.scrollWidth === 390`);
+  await screenshot('terminal-mobile');
+  await command(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
+    sessionId,
+  );
   await clickText('予定');
   await clickText('予定を追加');
   await setValue('input[name="title"]', 'ブラウザから登録した予定');
@@ -330,6 +362,7 @@ try {
         'login',
         'chat creation',
         'terminal creation with immediate human input',
+        'terminal paste, font sizing, reconnect and mobile controls',
         'draft retention, reconnect status and rapid file selection',
         'schedule save',
         'memory save',

@@ -133,7 +133,7 @@ export class McpService {
     signal?.throwIfAborted();
     if (!config.enabled) return;
     const client = new Client(
-      { name: 'vibe-coders', version: '0.1.6' },
+      { name: 'vibe-coders', version: '0.1.7' },
       { capabilities: { elicitation: { form: {}, url: {} } } },
     );
     const c: Connection = {

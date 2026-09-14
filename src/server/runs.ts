@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
@@ -52,6 +53,7 @@ export function shellEnvironment() {
   return { ...env, TERM: 'xterm-256color', LANG: env.LANG || 'C.UTF-8' };
 }
 export class RunService {
+  readonly output = new EventEmitter();
   private live = new Map<string, Live>();
   constructor(
     readonly store: Store,
@@ -91,22 +93,27 @@ export class RunService {
   private append(id: string, text: string, final = false) {
     const live = this.live.get(id);
     if (!live) return;
-    const safe = this.vault.redact((live.redactionPending || '') + text);
-    const cutoff = final ? safe.length : Math.max(0, safe.length - this.vault.longestSecret() + 1);
-    text = safe.slice(0, cutoff);
-    live.redactionPending = safe.slice(cutoff);
+    // Human-owned output is ephemeral and visible only to the authenticated owner.
+    // Agent-owned output buffers only an actual possible secret prefix.
+    const humanOwned = this.get(id).owner === 'human';
+    const value = (live.redactionPending || '') + text;
+    const safe = humanOwned ? { text: value, pending: '' } : this.vault.redactStream(value, final);
+    text = safe.text;
+    live.redactionPending = safe.pending;
     live.output += text;
     if (live.output.length > OUTPUT_LIMIT) {
       const remove = live.output.length - OUTPUT_LIMIT;
       live.output = live.output.slice(remove);
       live.offset += remove;
     }
-    if (live.screen) live.flushed = new Promise<void>((done) => live.screen!.write(text, done));
+    if (live.screen && !humanOwned)
+      live.flushed = new Promise<void>((done) => live.screen!.write(text, done));
+    if (text) this.output.emit(id);
     if (!live.timer)
       live.timer = setTimeout(() => {
         live.timer = undefined;
         this.flush(id);
-      }, 80);
+      }, 250);
   }
   private flush(id: string) {
     const l = this.live.get(id);
@@ -117,7 +124,6 @@ export class RunService {
         .set({ output: l.output, outputOffset: l.offset })
         .where(eq(runs.id, id))
         .run();
-    this.store.notify();
   }
   private finish(id: string, exitCode: number | null, result?: Record<string, unknown>) {
     const live = this.live.get(id);
@@ -370,6 +376,7 @@ export class RunService {
       live.offset += live.output.length;
       live.output = '\r\n[Human-controlled interval omitted from the transcript]\r\n';
       live.redactionPending = '';
+      live.screen?.reset();
       this.store.db
         .update(runs)
         .set({ output: live.output, outputOffset: live.offset })
@@ -411,6 +418,7 @@ export class RunService {
         .run();
     }
     this.live.clear();
+    this.output.removeAllListeners();
   }
   recover() {
     for (const r of this.store.db

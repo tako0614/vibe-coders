@@ -31,7 +31,7 @@ const command = positionals[0] || 'serve',
 async function main() {
   if (values.help) {
     console.log(
-      `Vibe Coders — repository-based resident agent\n\n  vibe-coders setup                 Configure Web authentication (masked input)\n  vibe-coders init                  Create atom.toml and AGENT.md without overwriting\n  vibe-coders [--home PATH]          Start the backend and WebUI\n  vibe-coders provider configure    Configure an OpenAI-compatible model\n  vibe-coders mcp add --json        Read a nonsecret MCP configuration from stdin\n  vibe-coders codex login            Sign into Codex using device authorization\n  vibe-coders computer connect --json  Read an X11 or VNC target from stdin\n  vibe-coders secret --target ID --stdin  Save a credential through stdin\n  vibe-coders config               Show nonsecret local configuration\n  vibe-coders doctor               Show available capabilities\n\nSetup automation: setup --username NAME --password-stdin\nCodex subscription: provider configure --kind codex --model ID\nProvider automation: provider configure --base-url URL --model ID [--no-key-required]\nBun >= 1.3.14. PTY: Bun on Linux/macOS, node-pty on Windows. Desktop: X11 or loopback VNC.\n`,
+      `Vibe Coders — repository-based resident agent\n\n  vibe-coders setup                 Configure Web authentication (masked input)\n  vibe-coders init                  Create atom.toml and AGENT.md without overwriting\n  vibe-coders [--home PATH]          Start the backend and WebUI\n  vibe-coders provider configure    Configure an OpenAI-compatible model\n  vibe-coders mcp add --json        Read a nonsecret MCP configuration from stdin\n  vibe-coders codex login            Sign into Codex using device authorization\n  vibe-coders computer connect --json  Read an X11 or VNC target from stdin\n  vibe-coders secret --target ID --stdin  Save a credential through stdin\n  vibe-coders config               Show nonsecret local configuration\n  vibe-coders doctor               Show available capabilities\n\nSetup automation: setup --username NAME --password-stdin\nCodex subscription: provider configure --kind codex --model ID\nProvider automation: provider configure --base-url URL --model ID [--no-key-required]\nBun >= 1.3.14. PTY: Bun on Linux/macOS, node-pty on Windows. Desktop: automatic on Linux; manual loopback VNC on other systems.\n`,
     );
     return;
   }
@@ -202,6 +202,11 @@ async function main() {
               'xdotool',
               'import',
               'x11vnc',
+              'Xvfb',
+              'xauth',
+              'xdpyinfo',
+              'openbox',
+              'xterm',
               'pdftotext',
               'codex',
               'claude',
@@ -209,7 +214,13 @@ async function main() {
               'google-chrome',
             ].map((t) => [t, !!Bun.which(t)]),
           ),
-          desktop: config.public().desktop || null,
+          desktop: config.public().desktop || {
+            mode: 'automatic',
+            platform: process.platform,
+            display: process.env.DISPLAY || null,
+            message:
+              'Connects the installed host display; headless Linux starts a private virtual desktop.',
+          },
         },
         null,
         2,

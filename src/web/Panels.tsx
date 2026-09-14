@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import '@xterm/xterm/css/xterm.css';
+import { TerminalView } from './TerminalView';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -59,8 +57,21 @@ function Empty({ icon: Icon, title, text }: { icon: typeof Brain; title: string;
 }
 
 export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action: Action }) {
-  const [selected, setSelected] = useState('');
-  const run = snapshot.runs.find((r) => r.id === selected) || snapshot.runs[0];
+  const preferred =
+    snapshot.runs.find((r) => r.kind === 'terminal' && r.state === 'running') ||
+    snapshot.runs.find((r) => ['running', 'stopping'].includes(r.state));
+  const [selected, setSelected] = useState(preferred?.id || ''),
+    [history, setHistory] = useState(false);
+  const run =
+    snapshot.runs.find((r) => r.id === selected) ||
+    preferred ||
+    (history ? snapshot.runs[0] : undefined);
+  const visibleRuns = snapshot.runs.filter(
+    (r) => history || ['running', 'stopping'].includes(r.state),
+  );
+  const ended =
+    snapshot.runs.length -
+    snapshot.runs.filter((r) => ['running', 'stopping'].includes(r.state)).length;
   return (
     <section className="page terminal-page">
       <Heading
@@ -127,7 +138,15 @@ export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action
           </small>
         </form>
       </details>
-      {!snapshot.runs.length ? (
+      {ended > 0 && (
+        <button
+          className="text-button terminal-history-toggle"
+          onClick={() => setHistory(!history)}
+        >
+          {history ? '終了した実行を隠す' : `終了した実行を表示（${ended}）`}
+        </button>
+      )}
+      {!visibleRuns.length && !run ? (
         <Empty
           icon={SquareTerminal}
           title="まだ実行はありません"
@@ -136,7 +155,7 @@ export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action
       ) : (
         <div className="session-layout">
           <div className="session-list">
-            {snapshot.runs.map((r) => (
+            {visibleRuns.map((r) => (
               <button
                 className={run?.id === r.id ? 'selected' : ''}
                 key={r.id}
@@ -193,7 +212,7 @@ export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action
                 </div>
               )}
               {run.kind === 'terminal' ? (
-                <TerminalView key={run.id} run={run} action={action} />
+                <TerminalView key={run.id} run={run} stopped={snapshot.stopped} />
               ) : (
                 <RunOutput key={run.id} run={run} action={action} onStart={setSelected} />
               )}
@@ -310,120 +329,6 @@ function RunOutput({
     </>
   );
 }
-function TerminalView({ run, action }: { run: Snapshot['runs'][number]; action: Action }) {
-  const container = useRef<HTMLDivElement>(null),
-    current = useRef(run);
-  current.current = run;
-  useEffect(() => {
-    const terminal = new Terminal({
-      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: 3000,
-      theme: {
-        background: '#202938',
-        foreground: '#e6ebf4',
-        cursor: '#91a9ff',
-        selectionBackground: '#43567d',
-      },
-      allowProposedApi: true,
-    });
-    const fit = new FitAddon();
-    terminal.loadAddon(fit);
-    terminal.open(container.current!);
-    fit.fit();
-    if (current.current.owner === 'human' && current.current.state === 'running') terminal.focus();
-    let disposed = false,
-      offset = 0,
-      timer: ReturnType<typeof setTimeout>;
-    let lastSize = '';
-    const resize = () => {
-      if (disposed) return;
-      fit.fit();
-      const size = `${terminal.cols}:${terminal.rows}`;
-      if (size === lastSize) return;
-      lastSize = size;
-      if (
-        current.current.kind === 'terminal' &&
-        current.current.owner === 'human' &&
-        current.current.state === 'running' &&
-        terminal.cols >= 20 &&
-        terminal.rows >= 5
-      )
-        void api(`/runs/${run.id}/resize`, 'POST', {
-          cols: Math.min(300, terminal.cols),
-          rows: Math.min(150, terminal.rows),
-        }).catch(() => {});
-    };
-    let resizeFrame = 0;
-    const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(resize);
-    });
-    observer.observe(container.current!);
-    let queued = '',
-      inputTimer: ReturnType<typeof setTimeout> | undefined;
-    let writes = Promise.resolve();
-    const flushInput = () => {
-      inputTimer = undefined;
-      const row = current.current;
-      const text = queued;
-      queued = '';
-      if (disposed || row.owner !== 'human' || row.state !== 'running') return;
-      for (let start = 0; start < text.length;) {
-        let end = Math.min(start + 16000, text.length);
-        if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
-        const chunk = text.slice(start, end);
-        start = end;
-        writes = writes
-          .then(async () => {
-            if (!disposed)
-              await api(`/runs/${row.id}/write`, 'POST', { text: chunk, epoch: row.epoch });
-          })
-          .catch((error) => {
-            if (!disposed)
-              terminal.writeln(
-                `\r\n入力できませんでした: ${error instanceof Error ? error.message : '接続を確認してください'}`,
-              );
-          });
-      }
-    };
-    const input = terminal.onData((text) => {
-      if (current.current.owner !== 'human' || current.current.state !== 'running') return;
-      queued += text;
-      inputTimer ??= setTimeout(flushInput, 8);
-    });
-    const poll = async () => {
-      try {
-        const data = await api<{ text: string; nextOffset: number; truncated: boolean }>(
-          `/runs/${run.id}?offset=${offset}`,
-        );
-        if (disposed) return;
-        if (data.truncated) {
-          terminal.reset();
-          terminal.writeln('[古い出力は保持上限を超えたため省略されています]');
-        }
-        if (data.text) terminal.write(data.text);
-        offset = data.nextOffset;
-      } catch (e) {
-        if (!disposed) terminal.writeln(`\r\n${e instanceof Error ? e.message : 'Disconnected'}`);
-      }
-      if (!disposed) timer = setTimeout(poll, current.current.state === 'running' ? 350 : 2500);
-    };
-    void poll();
-    return () => {
-      disposed = true;
-      clearTimeout(timer);
-      observer.disconnect();
-      cancelAnimationFrame(resizeFrame);
-      clearTimeout(inputTimer);
-      input.dispose();
-      terminal.dispose();
-    };
-  }, [run.id, run.owner, action]);
-  return <div className="terminal-surface" ref={container} />;
-}
-
 const localTimeInput = (ms: number) => {
   const d = new Date(ms);
   return new Date(ms - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -886,18 +791,18 @@ export function SettingsPanel({
           </span>
           <div>
             <h2>共有デスクトップ</h2>
-            <p>既存の画面をX11またはVNCで共有</p>
+            <p>インストール先の画面を自動で共有</p>
           </div>
-          <button onClick={() => setDesktopForm(!desktopForm)}>設定</button>
+          <button onClick={() => setDesktopForm(!desktopForm)}>手動接続の設定</button>
         </div>
         <p>
           {status.desktop.configured
             ? `${status.desktop.name} / DISPLAY ${status.desktop.display}`
-            : 'デスクトップは未接続です。'}
+            : status.desktop.message}
         </p>
         <small className="muted">
-          バックエンド側に xdotool と ImageMagick
-          が必要です。VNCは同じDISPLAYを共有するサーバーをloopbackに設定してください。
+          Linuxでは利用可能な画面を自動接続し、画面のない環境では専用デスクトップを起動します。
+          別のVNCを使う場合は手動接続を設定してください。
         </small>
         {desktopForm && (
           <form
@@ -1384,9 +1289,12 @@ export function DesktopPanel({
   onView: (v: View, section?: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null),
-    [connection, setConnection] = useState('未接続');
+    [connection, setConnection] = useState('未接続'),
+    [preview, setPreview] = useState(''),
+    [attempt, setAttempt] = useState(0);
+  const desktop = status.desktop;
   useEffect(() => {
-    if (!status.desktop.configured || status.desktop.owner !== 'human') return;
+    if (!desktop.configured || desktop.owner !== 'human' || status.stopped) return;
     let disposed = false,
       rfb: { disconnect: () => void } | undefined;
     void action(async () => {
@@ -1405,47 +1313,88 @@ export function DesktopPanel({
       rfb = client;
       client.scaleViewport = true;
       client.resizeSession = false;
-      client.addEventListener('connect', () => setConnection('接続済み'));
-      client.addEventListener('disconnect', () => setConnection('接続が切れました'));
-      client.addEventListener('securityfailure', () =>
-        setConnection('VNC認証に失敗しました。設定を確認してください。'),
-      );
+      client.addEventListener('connect', () => {
+        if (!disposed) setConnection('接続済み');
+      });
+      client.addEventListener('disconnect', () => {
+        if (!disposed) setConnection('接続が切れました');
+      });
+      client.addEventListener('securityfailure', () => {
+        if (!disposed) setConnection('VNC認証に失敗しました。');
+      });
     });
     return () => {
       disposed = true;
       rfb?.disconnect();
     };
-  }, [status.desktop.configured, status.desktop.owner, status.desktop.epoch, action]);
+  }, [desktop.configured, desktop.owner, desktop.epoch, status.stopped, attempt, action]);
+  useEffect(() => {
+    setPreview('');
+    if (!desktop.configured || desktop.owner !== 'agent' || status.stopped) return;
+    let disposed = false,
+      timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        if (document.visibilityState === 'visible') {
+          const result = await api<{ image: string }>('/desktop/preview');
+          if (!disposed) {
+            setPreview(`data:image/png;base64,${result.image}`);
+            setConnection('表示中');
+          }
+        }
+      } catch {
+        if (!disposed) setConnection('画面への再接続中…');
+      }
+      if (!disposed) timer = setTimeout(() => void refresh(), 1200);
+    };
+    void refresh();
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+    };
+  }, [desktop.configured, desktop.owner, desktop.epoch, status.stopped, attempt]);
   return (
     <section className="page desktop-page">
       <Heading
-        eyebrow="SHARED DESKTOP"
+        eyebrow="COMPUTER"
         title="デスクトップ"
-        description="手動操作中は、この画面への管理下のAI観測・入力を止めます。親のほかの作業は続きます。"
+        description="インストール先の画面を共有します。手動操作中は、この画面へのAIの観測と入力が止まります。"
       >
-        {status.desktop.configured && (
+        {desktop.configured && (
           <button
             className="primary"
+            disabled={status.stopped}
             onClick={() =>
               void action(() =>
                 api('/desktop/handoff', 'POST', {
-                  owner: status.desktop.owner === 'human' ? 'agent' : 'human',
+                  owner: desktop.owner === 'human' ? 'agent' : 'human',
                 }),
               )
             }
           >
             <Hand size={15} />
-            {status.desktop.owner === 'human' ? '安全な画面でAIに返す' : '画面を開いて手動操作'}
+            {desktop.owner === 'human' ? '安全な画面でAIに返す' : '画面を開いて手動操作'}
           </button>
         )}
       </Heading>
-      {!status.desktop.configured ? (
-        <div className="empty-panel">
+      {!desktop.configured ? (
+        <div className="empty-panel desktop-setup">
           <Monitor size={30} />
-          <h3>デスクトップを接続する</h3>
-          <p>既存デスクトップのX11またはVNC接続を設定します。</p>
-          <button onClick={() => onView('settings', 'desktop')}>
-            接続設定へ <ArrowUpRight size={14} />
+          <h3>
+            {desktop.setup === 'preparing'
+              ? 'デスクトップを準備しています'
+              : 'このホストの画面を使う'}
+          </h3>
+          <p>{desktop.message || '画面のない環境では専用デスクトップを自動で用意します。'}</p>
+          <button
+            className="primary"
+            disabled={status.stopped || desktop.setup === 'preparing'}
+            onClick={() => void action(() => api('/desktop/prepare', 'POST', {}))}
+          >
+            {desktop.setup === 'error' ? 'もう一度接続する' : '自動で接続する'}
+          </button>
+          <button className="text-button" onClick={() => onView('settings', 'desktop')}>
+            VNCを手動で設定
           </button>
         </div>
       ) : (
@@ -1453,21 +1402,53 @@ export function DesktopPanel({
           <div className="terminal-heading">
             <span>
               <Monitor size={15} />
-              {status.desktop.name} · {status.desktop.display}
+              {desktop.name}
             </span>
             <span>
-              {status.desktop.owner === 'human'
-                ? `あなたが操作中 · ${connection}`
-                : 'エージェントが操作可能'}
+              {status.stopped
+                ? '停止中'
+                : desktop.owner === 'human'
+                  ? `あなたが操作中 · ${connection}`
+                  : 'AIが操作可能 · 画面を表示中'}
             </span>
           </div>
-          {status.desktop.owner === 'human' ? (
+          <div className="desktop-tools">
+            {desktop.automatic && (
+              <>
+                <button
+                  disabled={status.stopped}
+                  onClick={() =>
+                    void action(() => api('/desktop/launch', 'POST', { app: 'browser' }))
+                  }
+                >
+                  Chromeを開く
+                </button>
+                <button
+                  disabled={status.stopped}
+                  onClick={() =>
+                    void action(() => api('/desktop/launch', 'POST', { app: 'terminal' }))
+                  }
+                >
+                  端末を開く
+                </button>
+              </>
+            )}
+            <button disabled={status.stopped} onClick={() => setAttempt((n) => n + 1)}>
+              再接続
+            </button>
+          </div>
+          {status.stopped ? (
+            <div className="empty-panel">全停止中です。</div>
+          ) : desktop.owner === 'human' ? (
             <div className="desktop-surface" ref={container} />
           ) : (
-            <div className="empty-panel">
-              <Monitor size={30} />
-              <h3>画面はバックエンドに接続されています</h3>
-              <p>手動操作に切り替えると、同じ画面をここに表示します。</p>
+            <div className="desktop-preview">
+              {preview ? (
+                <img src={preview} alt="インストール先のデスクトップの現在の画面" />
+              ) : (
+                <p>{connection === '未接続' ? '画面を読み込んでいます…' : connection}</p>
+              )}
+              <span>表示のみ · 操作するには「画面を開いて手動操作」</span>
             </div>
           )}
         </div>

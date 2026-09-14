@@ -8,7 +8,7 @@
 
 Bun 1.3.14以上が必要です。初期の検証対象はLinuxです。
 
-配布版は `npm install -g vibe-coders@0.1.6` で導入できます。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
+配布版は `npm install -g vibe-coders@0.1.7` で導入できます。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
 
 ```sh
 git clone https://github.com/tako0614/vibe-coders.git
@@ -36,7 +36,8 @@ bun run start --home /path/to/agent-repo
 - Webチャット、画像・テキスト添付、ツール結果、追加入力、親の一時停止・再開、全停止
 - 非同期の入力カード、専用の秘密入力、取消、明示待機、イベントによる復帰
 - ファイル一覧・範囲読取・glob・内容照合つき編集、URL取得、shell、持続PTY、TUIの現在画面
-- 任意CLIの起動、実行ログ、終了コード、同じ端末の手動操作と返却
+- 任意CLIの起動、実行ログ、終了コード、同じ端末の手動操作と返却。WebSocketで即時入出力、コピー・貼り付け・文字サイズ・全画面
+- Linuxの画面を自動接続。画面のないホストには専用デスクトップを用意し、Chrome・端末の起動、AI操作中のプレビュー、手動操作を共有
 - stdio / Streamable HTTP MCPの登録・更新・削除・接続・動的ツール取得、型付きフォーム、URL認証、OAuth
 - MCPで使いたい機能を親へ依頼し、実行環境の確認・不足ソフトの導入・接続・動作確認を進める
 - 単発・周期・イベント条件による予定、作成・編集・削除・即時実行、`atom.toml` の共有ルーチン
@@ -97,4 +98,4 @@ bun run db:generate    # Drizzleスキーマ変更時にmigrationを生成
 
 DBのmigrationはバックエンド起動時に適用します。依存は `bun.lock` に固定しています。Atom Memoryはnpm公開済みの0.7.0を使い、SQLiteドライバのimportだけをBun向けに変更したパッチを管理しています。
 
-0.1.6の修正と検証範囲は [動作修正と画面整理](docs/debugging-0.1.6.md)。設計全体は [plan.md](plan.md)、実装範囲・実機検証・外部条件待ちは [実装状況](docs/implementation.md)、配布方法は [配布・運用](docs/distribution.md) に記録しています。Codexサブスクによる親のファイル操作・記憶・人間入力と、親がMCPを登録して実Chromeを読むところまで確認しています。OpenAI互換APIの実接続、Claudeの再ログイン、各OSの実機検証などは残っています。
+0.1.7の端末・デスクトップ改善は [端末の遅延と自動デスクトップ](docs/debugging-0.1.7.md)。0.1.6の修正と検証範囲は [動作修正と画面整理](docs/debugging-0.1.6.md)。設計全体は [plan.md](plan.md)、実装範囲・実機検証・外部条件待ちは [実装状況](docs/implementation.md)、配布方法は [配布・運用](docs/distribution.md) に記録しています。Codexサブスクによる親のファイル操作・記憶・人間入力と、親がMCPを登録して実Chromeを読むところまで確認しています。OpenAI互換APIの実接続、Claudeの再ログイン、各OSの実機検証などは残っています。

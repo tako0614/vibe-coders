@@ -85,7 +85,7 @@ export class CodexAuth {
     try {
       await client.request(
         'initialize',
-        { clientInfo: { name: 'vibe_coders', version: '0.1.6' } },
+        { clientInfo: { name: 'vibe_coders', version: '0.1.7' } },
         10000,
       );
       client.send({ method: 'initialized', params: {} });

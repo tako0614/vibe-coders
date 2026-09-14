@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { TerminalSockets } from './terminal-socket';
 import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
 import { serveStatic, createBunWebSocket } from 'hono/bun';
@@ -46,6 +47,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     process.env.VIBE_CODER_ORIGIN ||
     r.config.read().web?.origin ||
     `http://${r.config.read().web?.hostname || '127.0.0.1'}:${r.config.read().web?.port || 3100}`;
+  const terminals = new TerminalSockets(r, origin);
   app.use(
     '*',
     secureHeaders({
@@ -66,7 +68,11 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     if (!web)
       return c.json({ error: 'Run vibe-coders setup to configure Web authentication.' }, 503);
     const header = c.req.header('Authorization') || '';
-    let allowed = false;
+    let allowed = terminals.authorize(
+      c.req.path,
+      c.req.query('ticket') || '',
+      c.req.header('Origin'),
+    );
     if (c.req.path === '/api/desktop/socket') {
       const ticket = tickets.get(c.req.query('ticket') || '');
       allowed =
@@ -128,6 +134,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       400,
     ),
   );
+  terminals.install(app, upgradeWebSocket);
   app.get('/api/status', (c) =>
     c.json({
       home: r.home,
@@ -472,19 +479,27 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     r.desktop.handoff('agent');
     return c.json(r.config.public());
   });
+  app.post('/api/desktop/prepare', async (c) => c.json(await r.desktop.prepare()));
+  app.get('/api/desktop/preview', async (c) => c.json(await r.desktop.preview()));
+  app.post('/api/desktop/launch', async (c) => {
+    const { app, url } = z
+      .object({ app: z.enum(['browser', 'terminal']), url: z.url().optional() })
+      .parse(await c.req.json());
+    return c.json(await r.desktop.launch(app, url, 'human'));
+  });
   app.post('/api/desktop/handoff', async (c) => {
     const { owner } = z.object({ owner: z.enum(['human', 'agent']) }).parse(await c.req.json());
     return c.json(r.desktop.handoff(owner));
   });
   // VNC credentials only reach this authenticated user route, never model tools.
   app.post('/api/desktop/credential', (c) => {
-    const d = r.config.read().desktop;
+    const d = r.desktop.target();
     if (!d || r.desktop.status().owner !== 'human') throw new Error('Take desktop control first.');
-    return c.json({ password: r.vault.get('desktop', d.revision) || '' });
+    return c.json({ password: r.desktop.credential() || '' });
   });
   app.post('/api/desktop/ticket', (c) => {
     r.store.assertEnabled();
-    if (r.desktop.status().owner !== 'human' || !r.config.read().desktop)
+    if (r.desktop.status().owner !== 'human' || !r.desktop.target())
       throw new Error('Configure a desktop and take control first.');
     for (const [key, t] of tickets) if (t.expires < Date.now()) tickets.delete(key);
     const ticket = crypto.randomUUID();
@@ -529,7 +544,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       return {
         onOpen(_event, client) {
           ws = client;
-          const d = r.config.read().desktop;
+          const d = r.desktop.target();
           if (!d) return client.close();
           socket = createConnection({ host: d.vncHost, port: d.vncPort });
           socket.on('data', (data) =>

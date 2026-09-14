@@ -2,13 +2,17 @@ import { Config, Vault } from './config';
 import { Store } from './store';
 import { shellEnvironment } from './runs';
 import { RfbClient } from './rfb';
+import { DesktopHost } from './desktop-host';
 
 export class Desktop {
+  readonly host?: DesktopHost;
+  private previews = new Set<RfbClient>();
   private sessions = new Set<RfbClient>();
   private cachedVnc?: { client: RfbClient; epoch: number; revision: number };
   private vncBusy = false;
   private processes = new Set<{ kill: () => void }>();
   private changed = () => {
+    if (this.store.stopped) for (const c of this.previews) c.close();
     if (this.store.stopped || this.status().owner === 'human') {
       for (const c of this.sessions) c.close();
       for (const p of this.processes) p.kill();
@@ -25,13 +29,19 @@ export class Desktop {
     readonly store: Store,
     readonly config: Config,
     readonly vault: Vault,
+    options?: { home: string; directory: string },
   ) {
+    if (options) this.host = new DesktopHost(options.home, options.directory, () => store.notify());
     store.changes.on('change', this.changed);
   }
   status() {
-    const c = this.config.read().desktop;
+    const c = this.target();
     return {
       configured: !!c,
+      setup: c ? ('ready' as const) : this.host?.state || ('idle' as const),
+      source: this.config.read().desktop ? ('manual' as const) : this.host?.source,
+      message: this.host?.message || '',
+      automatic: !this.config.read().desktop,
       name: c?.name,
       display: c?.display,
       host: 'backend host',
@@ -46,6 +56,48 @@ export class Desktop {
           : 'Linux X11; VNC must share the configured DISPLAY.',
     };
   }
+  target() {
+    return this.config.read().desktop || this.host?.target;
+  }
+  credential() {
+    const c = this.config.read().desktop;
+    return c ? this.vault.get('desktop', c.revision) : this.host?.password;
+  }
+  async prepare() {
+    this.store.assertEnabled();
+    if (this.target()) return this.status();
+    if (!this.host) throw new Error('Automatic desktop is unavailable.');
+    await this.host.prepare();
+    return this.status();
+  }
+  async launch(app: 'browser' | 'terminal', url?: string, actor: 'agent' | 'human' = 'agent') {
+    await this.prepare();
+    if (actor === 'agent') this.requireAgent();
+    if (this.config.read().desktop)
+      throw new Error('アプリの起動は自動接続したデスクトップで利用できます。');
+    return this.host!.launch(app, url);
+  }
+  async preview() {
+    this.store.assertEnabled();
+    const c = this.target(),
+      epoch = this.status().epoch;
+    if (!c) throw new Error('Desktop is not ready.');
+    // A separate connection cannot mutate or consume the agent's observation.
+    const client = new RfbClient(c.vncHost, c.vncPort, () => {
+      this.store.assertEnabled();
+      if (epoch !== this.status().epoch || c.revision !== this.target()?.revision)
+        throw new Error('Desktop changed.');
+    });
+    this.previews.add(client);
+    try {
+      await client.connect(this.credential());
+      const buffer = await client.screenshot();
+      return { image: buffer.toString('base64') };
+    } finally {
+      this.previews.delete(client);
+      client.close();
+    }
+  }
   handoff(owner: 'human' | 'agent') {
     this.observation = undefined;
     this.store.set('desktopEpoch', this.store.get('desktopEpoch', 0) + 1);
@@ -54,7 +106,7 @@ export class Desktop {
   }
   private requireAgent() {
     this.store.assertEnabled();
-    const c = this.config.read().desktop;
+    const c = this.target();
     if (!c || !this.status().supported)
       throw new Error(
         'Configure a Linux X11 desktop with xdotool, ImageMagick and an authenticated VNC server.',
@@ -64,6 +116,7 @@ export class Desktop {
     return c;
   }
   async screenshot() {
+    if (!this.target()) await this.prepare();
     const c = this.requireAgent(),
       epoch = this.status().epoch;
     if (c.mode === 'vnc') {
@@ -101,7 +154,7 @@ export class Desktop {
     ]);
     this.processes.delete(proc);
     this.requireAgent();
-    if (epoch !== this.status().epoch || c.revision !== this.config.read().desktop?.revision)
+    if (epoch !== this.status().epoch || c.revision !== this.target()?.revision)
       throw new Error('Desktop changed during capture. Observe it again.');
     const buffer = Buffer.from(data);
     if (
@@ -265,12 +318,12 @@ export class Desktop {
     }
     const client = new RfbClient(c.vncHost, c.vncPort, () => {
       this.requireAgent();
-      if (this.status().epoch !== epoch || this.config.read().desktop?.revision !== c.revision)
+      if (this.status().epoch !== epoch || this.target()?.revision !== c.revision)
         throw new Error('Desktop changed.');
     });
     this.sessions.add(client);
     try {
-      await client.connect(this.vault.get('desktop', c.revision));
+      await client.connect(this.credential());
       this.cachedVnc = { client, epoch, revision: c.revision };
       return client;
     } catch (error) {
@@ -285,7 +338,7 @@ export class Desktop {
     this.vncBusy = false;
   }
   async verifyCredential(revision: number) {
-    const c = this.config.read().desktop;
+    const c = this.target();
     if (!c || c.revision !== revision)
       return { status: 'stale', message: '画面の接続設定が変更されました。' };
     const client = new RfbClient(c.vncHost, c.vncPort);
@@ -306,9 +359,11 @@ export class Desktop {
       client.close();
     }
   }
-  close() {
+  async close() {
     this.store.changes.off('change', this.changed);
+    for (const c of this.previews) c.close();
     for (const c of this.sessions) c.close();
     for (const p of this.processes) p.kill();
+    await this.host?.close();
   }
 }

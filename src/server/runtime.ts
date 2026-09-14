@@ -39,7 +39,7 @@ export function createRuntime(options: {
     files = new Files(home),
     scheduler = new Scheduler(store, runs);
   const mcp = new McpService(store, config, vault, runs, human, home),
-    desktop = new Desktop(store, config, vault);
+    desktop = new Desktop(store, config, vault, { home, directory });
   human.verifyCredential = async (target, revision) =>
     target === 'provider:main'
       ? verifyProvider(config, vault, revision)
@@ -146,6 +146,7 @@ export function createRuntime(options: {
         /* Invalid edited configuration is exposed by doctor/model input; keep forms alive. */
       }
     }, 1000);
+    if (!store.stopped && !config.read().desktop) void desktop.prepare().catch(() => {});
     if (!store.stopped)
       for (const c of config.read().mcp.filter((c) => c.enabled))
         void mcp.connect(c).catch(() => {});
@@ -177,7 +178,7 @@ export function createRuntime(options: {
       await agent.close();
       runs.stopAll();
       await mcp.close();
-      desktop.close();
+      await desktop.close();
       await runs.close();
       memory.close();
       sqlite.close();

@@ -780,13 +780,19 @@ export class Agent {
       ),
       tool(
         'desktop_status',
-        'Read configured desktop, ownership and capabilities.',
+        'Read the installed host desktop, automatic setup progress, ownership and capabilities.',
         z.object({}),
         () => this.desktop.status(),
       ),
       tool(
+        'desktop_launch',
+        'Prepare this host desktop automatically and open its browser or terminal. Suspended while the user owns the desktop.',
+        z.object({ app: z.enum(['browser', 'terminal']), url: z.url().optional() }),
+        (a) => this.desktop.launch(a.app, a.url),
+      ),
+      tool(
         'desktop_screenshot',
-        'Capture the same Linux X11 display shared by VNC. Returns image input and an observation ID. Blocked while the user owns the desktop.',
+        'Automatically prepare and capture the desktop on the installed host. Returns image input and an observation ID. Blocked while the user owns the desktop.',
         z.object({}),
         () => this.desktop.screenshot(),
       ),

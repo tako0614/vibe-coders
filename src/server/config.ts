@@ -214,8 +214,28 @@ export class Vault {
     const r = this.read()[target];
     return r?.version === version && r.operationId === operationId;
   }
-  longestSecret() {
-    return Math.max(1, ...this.secretValues().map((value) => JSON.stringify(value).length - 2));
+  redactStream(value: string, final = false) {
+    const secrets = this.secretValues().flatMap((secret) => [
+      secret,
+      JSON.stringify(secret).slice(1, -1),
+    ]);
+    for (const secret of secrets) value = value.replaceAll(secret, '[REDACTED]');
+    let held = 0;
+    if (!final)
+      for (const secret of secrets) {
+        const first = Math.max(0, value.length - secret.length + 1);
+        for (
+          let index = value.indexOf(secret[0], first);
+          index >= 0;
+          index = value.indexOf(secret[0], index + 1)
+        ) {
+          if (secret.startsWith(value.slice(index))) {
+            held = Math.max(held, value.length - index);
+            break;
+          }
+        }
+      }
+    return { text: value.slice(0, value.length - held), pending: held ? value.slice(-held) : '' };
   }
   private secretValues() {
     const values: string[] = [];

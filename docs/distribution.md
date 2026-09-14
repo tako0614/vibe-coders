@@ -1,16 +1,16 @@
 # 配布・運用
 
-2026-09-14。**Vibe Coders** の0.1.6をnpmへ公開しました。認証からAI接続への導線、端末のCtrl-Cと表示サイズ、下書き保持、通信復帰、ファイル選択を修正し、WebUI全体を整理しています。0.1.4で追加した、親エージェントをCodexのサブスク枠で動かす接続も含みます。外部サーバーへの配備は、配備先が未指定のため未実施です。
+2026-09-14。**Vibe Coders** の0.1.7をnpmへ公開しました。端末の即時入出力と操作補助を追加し、Linuxのデスクトップを起動時に自動接続するようにしました。画面のない環境には専用画面を起動します。0.1.4で追加した、親エージェントをCodexのサブスク枠で動かす接続も含みます。外部サーバーへの配備は、配備先が未指定のため未実施です。
 
 ```sh
-npm install -g vibe-coders@0.1.6
+npm install -g vibe-coders@0.1.7
 ```
 
 ソースは公開GitHubリポジトリ [tako0614/vibe-coders](https://github.com/tako0614/vibe-coders) で管理します。
 
 旧 `@tako0614/vibe-coder@0.1.1` からの改名です。同じHomeで起動すると、従来の設定・会話・Atomの記憶を使えます。保存先の `vibe-coder` ディレクトリと `VIBE_CODER_*` 環境変数は引き続き使用します。
 
-公開registryから0.1.6を取得し、配布ファイルのSHA-512一致、npmからのインストール、`vibe-coders` コマンドとHome初期化を確認しました。52テスト、Reactビルド、配布bundleの別ディレクトリ起動も通過しています。旧0.1.1で保存したログイン設定・会話・Atomの記憶を0.1.2から読み書きする移行試験は、改名時に確認済みです。
+公開registryから0.1.7を取得し、配布ファイルのSHA-512一致、npmからのインストール、`vibe-coders` コマンドとHome初期化を確認しました。57テスト、Reactビルド、配布bundleの別ディレクトリ起動も通過しています。旧0.1.1で保存したログイン設定・会話・Atomの記憶を0.1.2から読み書きする移行試験は、改名時に確認済みです。
 
 ## npm用配布物
 
@@ -26,7 +26,7 @@ npm pack
 ローカルtarballの導入後は以下の手順です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.1.6.tgz
+npm install -g /path/to/vibe-coders-0.1.7.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -45,7 +45,7 @@ VIBE_CODER_LISTEN=0.0.0.0 VIBE_CODER_ORIGIN=http://192.168.1.10:3100 vibe-coders
 
 常用する場合は端末設定の `web.hostname` に `0.0.0.0`、`web.origin` に実際のURLを保存します。MCP OAuthのcallbackにもそのURLが使われます。ログインには `vibe-coders setup` で設定したユーザー名とパスワードを使います。`web.origin` は一つのURLを許可する設定なので、別端末もそのURLから開いてください。
 
-0.1.6ではHTTPのLAN接続でもチャット・入力回答・MCP導入依頼に必要な操作IDを生成できます。
+0.1.7ではHTTPのLAN接続でもチャット・入力回答・MCP導入依頼に必要な操作IDを生成できます。
 
 ## コンテナ
 
@@ -58,13 +58,16 @@ docker compose up -d
 
 `workspace/` を作業Homeに、named volumeを設定とDBの保存先にします。ブラウザは `http://127.0.0.1:3100`。`VIBE_CODER_LISTEN` はlistenアドレスだけを変えます。HTTPSのリバースプロキシ配下では `VIBE_CODER_ORIGIN=https://your-host.example` も指定し、公開Originと一致させてください。MCP OAuthのcallback URLにも外部Originを使う場合は、端末設定の `web.origin` を同じ値にします。
 
-GUIを使う場合、コンテナから見たlocalhostとホストOSのlocalhostは別です。SSH転送等で対象VNCをバックエンドと同じネットワーク名前空間のloopbackへ接続してください。ログイン済みのCodexやChromeを使う用途では、通常のホスト上で起動する構成が扱いやすくなります。
+自動デスクトップはコンテナ内に起動します。ホストの既存画面を使う場合、コンテナから見たlocalhostとホストOSのlocalhostは別です。SSH転送等で対象VNCをバックエンドと同じネットワーク名前空間のloopbackへ接続してください。ログイン済みのCodexやChromeを使う用途では、通常のホスト上で起動する構成が扱いやすくなります。
 
 この環境ではDockerのAppArmor profileを適用できずビルドが止まりました。通常のDockerホストでの実行はまだ確認していません。
 
+自動接続のVNCはloopbackだけで待ち受け、X11とVNCの認証情報はHomeごとの状態領域に保存します。別のHomeとはポート・画面・Chromeプロファイルを共有しません。終了時は自身が起動したプロセスだけを停止し、異常終了後の再起動もPIDと起動時刻を照合して回収します。
+
 ## OS側の準備
 
-- Linux X11：`xdotool`、ImageMagickの`import`、同じDISPLAYを共有するVNCサーバー。
+- Linux自動接続：アクセス可能なX11のDISPLAYを使用し、なければ専用のXvfbを起動。Debian / Ubuntuではrootまたはパスワード不要のsudoで、必要な `xvfb xauth x11-utils x11vnc openbox xterm` を導入します。権限不足・その他のディストリビューションでは、画面に出るインストール案内を使用してください。既存の手動VNC設定は優先されます。
+- Linux X11の手動直接操作：`xdotool`、ImageMagickの`import`、同じDISPLAYを共有するVNCサーバー。
 - VNC経由：RFB 3.3 / 3.7 / 3.8、raw encoding、Noneまたは標準VNC password authenticationに対応するサーバー。接続先のOS側で画面共有と必要な許可を有効にします。macOS固有認証やVeNCrypt専用構成は、そのままでは接続できません。
 - Windows：Bunとnode-pty / ConPTY。PowerShellや任意CLIもコマンドを指定してPTYから起動できます。
 - PDF：Popplerの`pdftotext`。スキャン画像には別途OCRまたは画像を扱うモデル・ツールが必要です。

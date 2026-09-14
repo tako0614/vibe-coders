@@ -7,7 +7,7 @@
 Bun 1.3.14以上を先にインストールしてください。
 
 ```sh
-npm install -g vibe-coders@0.1.6
+npm install -g vibe-coders@0.1.7
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -23,7 +23,8 @@ vibe-coders
 - Codex App Server / Claude Code連携とセッション再開
 - stdio / HTTP MCP、導入依頼・動的追加・更新・再接続、型付きフォーム、URL認証、OAuth
 - **Codexのサブスク枠で親エージェントを実行**。ChatGPTログイン、モデル一覧、画像・ツール呼び出し、認証待ちからの再開
-- Linux X11 / VNCによる共有デスクトップ
+- Linuxのデスクトップを自動接続。画面のないホストには専用の仮想画面、Chrome・端末の起動、AI操作中のプレビュー
+- WebSocketによる即時の端末入出力、コピー・貼り付け・文字サイズ・全画面
 - 単発・周期・イベント条件の予定、Atomの保存と自動取得
 - SearXNG / Brave Search、履歴と画像の保存期間設定
 
@@ -37,7 +38,9 @@ vibe-coders
 
 PDFにはPopplerの `pdftotext`、X11直接操作には `xdotool` とImageMagickが必要です。PDFは先頭20ページまでのテキスト層を扱い、スキャン画像のOCRは含みません。
 
-VNC方式は、RFB 3.3 / 3.7 / 3.8のraw encodingとNone / 標準VNC password authenticationに対応します。対象OS側でVNCサーバーを有効にします。別ホストへ接続する場合は、SSH転送等でバックエンドのloopbackへ接続してください。OS固有の画面共有認証をすべて実装するものではありません。
+Linuxでは起動時にアクセス可能なX11画面を確認し、なければ認証付きXvfbとVNCをこのホストに起動します。Debian / Ubuntuでは不足パッケージをrootまたはパスワード不要のsudoで自動導入します。権限が足りない場合は実行するコマンドを画面に表示します。Chrome / Chromiumはホストにインストールされたものを専用プロファイルで開きます。通常のWayland画面・macOS・Windowsの直接自動接続は未対応で、手動VNCを使用します。
+
+手動VNC方式は、RFB 3.3 / 3.7 / 3.8のraw encodingとNone / 標準VNC password authenticationに対応します。対象OS側でVNCサーバーを有効にします。別ホストへ接続する場合は、SSH転送等でバックエンドのloopbackへ接続してください。OS固有の画面共有認証をすべて実装するものではありません。
 
 MCP接続の「追加したい機能」やチャットから「Chromeを導入してMCPで接続して」と依頼できます。親がOS・既存環境を確認し、通常のChromeと必要なMCPを導入・登録・接続します。親モデルと対象ホストへの操作経路が必要です。Chromeのリモートデバッグ許可など、本人操作が必要な箇所は入力カードへ回します。
 
