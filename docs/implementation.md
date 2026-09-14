@@ -1,0 +1,101 @@
+# 実装状況
+
+2026-09-14。Vibe CodersはHono / Bun / React / SQLite / Drizzleで実装しています。
+
+## Atomはどれを使っているか
+
+あなたの [`tako0614/atom-memory`](https://github.com/tako0614/atom-memory) のnpm公開版 **0.7.0** を使用しています。`src/server/memory.ts` はその `MemoryHost` と `SqliteStorage` を組み込むホストです。独自の代替ライブラリではありません。`patches/atom-memory@0.7.0.patch` はSQLiteドライバのimportを `node:sqlite` から `bun:sqlite` へ置き換える差分だけです。
+
+手元のライブラリとnpmでは0.9.0の公開も確認しました。このアプリの依存は0.7.0に固定しており、0.9の宣言的writeやInputTokenへ移行した状態とは扱いません。採用版の契約に従って、毎回の取得と成功したモデル応答後の利用ackを行います。
+
+## 実装済み
+
+| 機能           | 実装内容                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| チャット       | 会話・画像・テキスト・PDF添付、ストリーム、追加入力、親の一時停止と再開、全停止                                                                                            |
+| 人間入力       | 非同期カード、明示wait、期限・取消・重複送信・接続版の照合、専用秘密入力                                                                                                   |
+| 認証の確認     | モデル接続の認証確認。認証拒否なら同じカードの版を更新して再入力。一時障害なら保存したキーを保持して再確認。VNCも実認証を確認                                              |
+| MCP            | stdio / Streamable HTTP、動的discovery、ツール一覧変更、文字・選択・整数・数値・真偽値フォーム、URL elicitation                                                            |
+| MCP OAuth      | SDKのdiscovery・client登録・PKCE・トークン保存・更新。期限と接続版に結び付く一回限りのstate、コールバック後の接続再開                                                      |
+| ファイル・実行 | 範囲読取・glob・内容照合つき編集、shell、継続PTY、Unicode/TUI現在画面、手動操作への引き継ぎ                                                                                |
+| 子エージェント | Codex App Serverのthread/turnとresume、Claude Codeのstream-jsonとsession resume。親を止めず実行し、構造化された成否と再開IDを保存                                          |
+| MCP導入        | 汎用の導入依頼、環境・実行ファイルの確認、親からの追加・更新・再接続・切断・削除。接続は独立runで行い、実ツールを次の推論へ反映。Chromeは通常アプリとMCPを導入する利用例   |
+| Codex親モデル  | サブスク認証によるResponses接続。親ループ・MCP・予定・Atomは本アプリが所有。ツールIDとストリーム終端の照合、暗号化コンテキスト継続、画像入力、401時の一度の更新、429で停止 |
+| Codex認証      | App ServerによるChatGPTコード／ブラウザ認証、ユーザー専用のURL・コード表示、成功通知とアカウント確認、親・子の認証待ちと元の作業の再開、取消・全停止・再起動時の処理       |
+| GUI            | Linux X11直接操作とVNC経由。画面取得・クリック・キー・Unicode文字・スクロール・ドラッグ。同じVNCをWebUIでも利用                                                            |
+| 別OSの画面     | VNCサーバーを公開できるWayland / macOS / Windowsと、WSLから別ホストの画面への接続経路。リモート通信はloopbackへのSSH転送等を使用                                           |
+| Windows端末    | shellはcmd、PTYはnode-pty / ConPTY。Linux/macOSはBun PTY                                                                                                                   |
+| 予定           | 単発・周期・即時実行、実行終了・入力解決・メッセージ受信を条件とする予定。イベントIDのカーソルで重複発火を防止                                                             |
+| Web・PDF       | SearXNG / Brave Searchの検索API、出典URLと取得日時、URL本文取得。PopplerでPDFの先頭20ページまでのテキスト層を抽出                                                          |
+| 保存期間       | 画像30日・終了済み実行30日・会話90日が既定。変更・無期限化可能。進行中の作業、未回答の依頼、有効な予定、未処理イベントがある会話を保護                                     |
+| 保存・復帰     | SQLite migration、受信箱、実行状態、資格情報の独立保存、消失プロセスをinterruptedにする復帰。不明な副作用を自動再送しない                                                  |
+| 排他           | 設定・資格情報をプロセス間で排他更新。完成したPID記録を原子的に公開し、終了済みのwriterのロックを回収                                                                      |
+| 配布           | 元のnode_modulesを要しないBun用バックエンド＋ビルド済みWebUI、npm用配布ディレクトリ、Dockerfile / Compose、各OSのCI定義                                                    |
+
+外部プロセスやネットワークの副作用にexactly-onceを保証しません。資格情報と暗号鍵は同じOSユーザーがアクセス可能です。任意shellから秘密を隔離するサンドボックスとしては扱いません。管理下の手動操作区間はAIの観測を停止しますが、他のOSプロセスによる観測を制御するものではありません。
+
+## この環境で確認したこと
+
+- 型検査、Bunの46テスト、Reactビルド、Honoによる認証付き画面配信。
+- CLI設定・init・起動・終了・二重起動拒否。配布用bundleを別ディレクトリへ移して、元のnode_modulesなしで起動・migration・認証・画面配信。npm tarballからのインストール、実行コマンド、Home初期化。
+- `vibe-coders@0.1.4` をnpmへ公開。公開tarballの内容一致と、公開registryからのインストール・実行コマンド・Home初期化を確認。
+- 改名時の移行試験では、旧 `@tako0614/vibe-coder@0.1.1` で保存したログイン設定・会話・Atomの記憶を `vibe-coders@0.1.2` から読み書きできることを確認。
+- 決めた手順を返すモデルfixtureで、MCP導入依頼 → 環境確認 → shellによるローカルMCP実行ファイルの導入 → 登録 → discovery → 次の推論での実ツール呼び出しを同じ会話で確認。CLI未導入、設定版変更、初期化中のデスクトップ引き継ぎも回帰試験。
+- Codex認証のJSON-RPC fixtureで、コード／ブラウザ方式、認証URLの制約、秘密の履歴非混入、API認証・CSRF、成功時の元の作業の一回の開始、失敗・取消・全停止・失われた認証カードの復旧を確認。
+- WebUIでMCP導入フォーム、Codexの認証カード・コードの消去・待機中の子の完了、390px幅を確認。新規の実アカウント認証操作は行わずfixtureで検証。既存のログイン済みCodexでは、追加した認証確認を通って実ファイル作成・読戻しまで再検証。
+- **実際のCodexサブスクで親を実行**。端末のモデル一覧が返した既定モデルを使い、親からファイル作成・読戻し・Atomへの保存・非秘密の人間入力を実行。`native_start` を使用していません。
+- **実Codexサブスクの親からMCPを動的登録**。環境確認 → `mcp_add` → discovery → 実Chromeの `list_pages` → 実行結果の確認まで同じ会話で完走。29ツールを取得。Chromeは検証専用で、インストール済みの環境を使用しました。
+- Codex親モデルの回帰試験で、終端のoutput配列が空の実ストリーム形式、暗号化コンテキスト・画像・tool call IDの継続、ログインから元の親の依頼の再開、取消後の再要求防止、全停止、途中切断時の非実行、API課金への非フォールバックを確認。
+- 実MCPサーバーとのツール呼出し、数値・真偽値・URL入力。HTTP OAuth fixtureによるdiscovery・登録・PKCE照合・callback再利用拒否・接続再開。
+- 実際のXvfb＋パスワード付きx11vncで、640×480の画面取得、クリック、英字と日本語のキーイベント、ドラッグ、手動への引き継ぎ、古い観測による入力拒否。
+- 実際のChrome＋chrome-devtools-mcpで29ツール取得、タブ一覧、手動操作時の切断と再接続。検証専用のChromeを使用し、普段のプロファイルを変更していません。
+- ログイン・会話・PTY入力・予定保存・記憶保存・ファイル読取・接続設定・秘密入力・390px幅のブラウザ操作。
+- WebUIのnoVNCからパスワード付きの実デスクトップへ接続し、800×600の表示と手動操作からAIへの返却を確認。
+- **実際のログイン済みCodex**によるファイル作成と読戻し。native turnがcompletedになったこととファイル内容を照合。
+- ネイティブ実行のWebUIは通常の出力・状態・再開IDを表示し、PTYを作りません。CLI fixtureを使って画面から同じセッションの次ターンを開始。実行中の即時入力は未対応で、次ターンの指示とは区別して能力を表示します。
+- PDF fixtureの実Poppler読取、検索HTTP fixture、期限削除、認証拒否・一時障害・再検証の回帰試験。
+
+## 外部条件が足りず完了していない検証・公開
+
+1. **OpenAI互換APIの実接続と未導入Chromeの総合検証**：Codexサブスクによる親の実推論・ツール・MCPは確認済みです。別のOpenAI互換APIの実キーでの推論と、Chrome自体が未導入の環境から実LLMが導入まで完走する試験は未実施です。Codexの新規アカウント認証操作はfixtureで検証し、実機では既存のChatGPTログインを使用しています。
+2. **Claude Codeの実推論**：端末のOAuthセッションが期限切れで、更新に失敗しました。実CLIからの認証失敗を受け取り、成功扱いしないことは確認。`claude auth login` 後に再試験が必要です。
+3. **macOS / Windows / Waylandの実機検証**：接続とPTYのコード、CI定義はありますが、当該OSの実機はこの環境にありません。Linux上のVNC試験を各OSのIME・権限・DPI確認へ読み替えません。
+4. **Docker実行**：Dockerfileを用意してビルドを試みましたが、このホストの入れ子のコンテナ環境でAppArmor profile適用に失敗しました。通常のDockerホストでのビルド・起動確認が必要です。ホストのセキュリティ設定は変更していません。
+5. **外部サーバーへの配備**：Webサービスの配備先・ドメインは未指定です。npm配布名は `vibe-coders`。公開版は [配布・運用](distribution.md) に記録します。
+
+MCPの複合配列フォームやサービス固有の認証、スキャンPDFのOCR、全CLIの内部状態の共通化までは包括対応としません。対応していない外部能力はエラーまたはdeclineとして返します。壊れた旧形式の空lockや、ロック回収中の強制終了で残ったrecoveryディレクトリは運用側の確認が必要です。
+
+## 再実行
+
+```sh
+bun run check
+bun scripts/check-native.ts codex   # 実モデルを使う
+bun scripts/check-native.ts claude  # Claudeへの再ログイン後
+bun scripts/check-provider.ts --codex # Codexサブスクで親を検証（実モデル）
+bun scripts/check-provider.ts      # 設定済みのOpenAI互換APIを検証
+```
+
+ブラウザ検証は `test/fixtures/preview.ts` とViteを起動してから実行します。
+
+```sh
+VIBE_CODER_CDP=http://127.0.0.1:9223 bun scripts/browser-check.ts
+VIBE_CODER_CDP=http://127.0.0.1:9223 bun scripts/check-browser-mcp.ts
+VIBE_CODER_CDP=http://127.0.0.1:9223 bun scripts/check-codex-mcp.ts # 実Codexの親が登録・呼出し
+```
+
+Codex認証UIのfixture検証はpreviewとbrowser-checkの両方に `VIBE_CODER_TEST_AUTH=1` と同じ一時ファイルの `VIBE_CODER_TEST_AUTH_STATE` を指定します。
+
+ネイティブUIのfixture検証はpreviewとbrowser-checkの両方に `VIBE_CODER_TEST_NATIVE=1` を、実VNCのUI検証は両方に `VIBE_CODER_TEST_DESKTOP=1` を指定します。
+
+外部モデルへ送らないUI fixtureの認証は `owner / test-only-password-123`。実運用の設定には使用しません。一時Homeはpreview終了時に削除し、スクリーンショットは `/tmp/vibe-coder-browser/` へ保存します。
+
+## 採用APIの一次資料
+
+- [Atom Memory](https://github.com/tako0614/atom-memory)
+- [Hono on Bun](https://hono.dev/docs/getting-started/bun)、[Drizzle / Bun SQLite](https://orm.drizzle.team/docs/get-started/bun-sqlite-new)
+- [Bun PTY](https://bun.com/docs/runtime/child-process)、[node-pty](https://github.com/microsoft/node-pty)
+- [MCP TypeScript SDK](https://ts.sdk.modelcontextprotocol.io/client)、[MCP elicitation](https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation)
+- [Codex App Server](https://developers.openai.com/codex/app-server)、[Claude Code programmatic usage](https://code.claude.com/docs/en/headless)
+- [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp)
+- [RFB protocol](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst)、[noVNC](https://novnc.com/noVNC/docs/API.html)
+- [SearXNG Search API](https://docs.searxng.org/dev/search_api.html)、[Brave Search](https://api-dashboard.search.brave.com/app/documentation/web-search/get-started)

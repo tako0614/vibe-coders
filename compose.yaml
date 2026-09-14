@@ -1,0 +1,13 @@
+services:
+  vibe-coders:
+    build: .
+    ports:
+      - '127.0.0.1:3100:3100'
+    volumes:
+      - ./workspace:/workspace
+      - vibe-data:/data
+    environment:
+      VIBE_CODER_LISTEN: '0.0.0.0'
+    restart: unless-stopped
+volumes:
+  vibe-data:

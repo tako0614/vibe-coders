@@ -1,0 +1,10 @@
+diff --git a/dist/adapters/sqlite.js b/dist/adapters/sqlite.js
+index 1d0ae98746926b9a01b51620970381a049ab583e..650b0744565db37ef6db0d63e21113b5b21b97c2 100644
+--- a/dist/adapters/sqlite.js
++++ b/dist/adapters/sqlite.js
+@@ -1,4 +1,4 @@
+-import { DatabaseSync } from 'node:sqlite';
++import { Database as DatabaseSync } from 'bun:sqlite';
+ import { uid } from '../core/util.js';
+ import { vectorBuckets } from '../core/vector-buckets.js';
+ function prefixEnd(prefix) {

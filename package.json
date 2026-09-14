@@ -1,0 +1,69 @@
+{
+  "name": "vibe-coders",
+  "version": "0.1.4",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tako0614/vibe-coders.git"
+  },
+  "homepage": "https://github.com/tako0614/vibe-coders#readme",
+  "bugs": {
+    "url": "https://github.com/tako0614/vibe-coders/issues"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "bin": {
+    "vibe-coders": "./src/cli.ts"
+  },
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "start": "bun src/cli.ts",
+    "setup": "bun src/cli.ts setup",
+    "init": "bun src/cli.ts init",
+    "build": "vite build",
+    "package": "bun run build && bun scripts/package.ts",
+    "check:package": "bun scripts/check-package.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check:built": "bun scripts/check-built.ts",
+    "check": "bun run typecheck && bun test && bun run package && bun run check:built && bun run check:package",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@fontsource-variable/dm-sans": "5.3.0",
+    "@fontsource-variable/noto-sans-jp": "5.3.0",
+    "@inquirer/prompts": "8.7.2",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@novnc/novnc": "1.7.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/headless": "6.0.0",
+    "@xterm/xterm": "6.0.0",
+    "atom-memory": "0.7.0",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.13.7",
+    "lucide-react": "1.45.0",
+    "openai": "7.15.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "zod": "4.6.4"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "drizzle-kit": "0.31.10",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  },
+  "patchedDependencies": {
+    "atom-memory@0.7.0": "patches/atom-memory@0.7.0.patch"
+  },
+  "optionalDependencies": {
+    "node-pty": "1.1.0"
+  }
+}
