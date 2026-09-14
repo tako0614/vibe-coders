@@ -18,7 +18,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 import { api, ApiError, listen, setLogin, stateLabel, type Snapshot, type Status } from './api';
-import { Chat, RequestCard } from './Chat';
+import { Chat, RequestCard, type ComposerDraft } from './Chat';
 const TerminalPanel = lazy(() => import('./Panels').then((m) => ({ default: m.TerminalPanel })));
 const SchedulesPanel = lazy(() => import('./Panels').then((m) => ({ default: m.SchedulesPanel })));
 const SettingsPanel = lazy(() => import('./Panels').then((m) => ({ default: m.SettingsPanel })));
@@ -44,8 +44,12 @@ export function App() {
     selectedRef = useRef('');
   const [view, setView] = useState<View>('chat'),
     [error, setError] = useState(''),
+    [connectionError, setConnectionError] = useState(''),
     [login, setLoginNeeded] = useState(false),
-    [sidebar, setSidebar] = useState(true);
+    [sidebar, setSidebar] = useState(true),
+    [connected, setConnected] = useState(false),
+    [settingsSection, setSettingsSection] = useState('model');
+  const drafts = useRef(new Map<string, ComposerDraft>());
   const inFlight = useRef(false),
     refreshAgain = useRef(false),
     mounted = useRef(true);
@@ -59,6 +63,7 @@ export function App() {
       const status = await api<Status>('/status');
       if (!mounted.current) return;
       setStatus(status);
+      setConnectionError('');
       setLoginNeeded(false);
       const id = selectedRef.current || status.conversations[0]?.id;
       if (id) {
@@ -70,8 +75,10 @@ export function App() {
         if (mounted.current && id === selectedRef.current) setSnapshot(snapshot);
       }
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setLoginNeeded(true);
-      else setError(e instanceof Error ? e.message : '接続できませんでした。');
+      if (e instanceof ApiError && e.status === 401) {
+        setLoginNeeded(true);
+        setError('ユーザー名またはパスワードを確認してください。');
+      } else setConnectionError(e instanceof Error ? e.message : '接続できませんでした。');
     } finally {
       inFlight.current = false;
       if (refreshAgain.current && mounted.current) {
@@ -84,9 +91,13 @@ export function App() {
     mounted.current = true;
     void refresh();
     const controller = new AbortController();
-    void listen(controller.signal, () => {
-      void refresh();
-    });
+    void listen(
+      controller.signal,
+      () => {
+        void refresh();
+      },
+      setConnected,
+    );
     return () => {
       mounted.current = false;
       controller.abort();
@@ -104,6 +115,10 @@ export function App() {
     },
     [refresh],
   );
+  const navigate = (next: View, section = 'model') => {
+    if (next === 'settings') setSettingsSection(section);
+    setView(next);
+  };
   const choose = (id: string) => {
     selectedRef.current = id;
     setSelected(id);
@@ -129,6 +144,7 @@ export function App() {
           onSubmit={(e) => {
             e.preventDefault();
             const data = new FormData(e.currentTarget);
+            setError('');
             setLogin(String(data.get('username')), String(data.get('password')));
             e.currentTarget.reset();
             void refresh();
@@ -172,16 +188,22 @@ export function App() {
           </span>
           <span>
             <strong>{status?.home.split('/').pop() || 'Workspace'}</strong>
-            <small>Home repository</small>
+            <small>作業フォルダ</small>
           </span>
           <ChevronDown size={14} />
         </button>
-        <button className="new-chat" onClick={() => void newChat()}>
+        <button className="new-chat" aria-label="新しい会話" onClick={() => void newChat()}>
           <Plus size={16} /> 新しい会話 <kbd>＋</kbd>
         </button>
         <nav>
           {navigation.map(([id, Icon, name]) => (
-            <button key={id} className={view === id ? 'selected' : ''} onClick={() => setView(id)}>
+            <button
+              key={id}
+              className={view === id ? 'selected' : ''}
+              onClick={() => setView(id)}
+              title={name}
+              aria-label={name}
+            >
               <Icon size={17} />
               <span>{name}</span>
               {id === 'requests' && pending.length > 0 && <b className="count">{pending.length}</b>}
@@ -208,14 +230,18 @@ export function App() {
         <div className="sidebar-bottom">
           <button
             className={view === 'settings' ? 'selected' : ''}
-            onClick={() => setView('settings')}
+            onClick={() => navigate('settings')}
+            aria-label="設定・接続"
+            title="設定・接続"
           >
             <Settings2 size={16} /> 設定・接続
           </button>
           <div className="daemon-status">
-            <span className={`live-dot ${status?.stopped ? 'off' : ''}`} />
-            <span>{status?.stopped ? 'すべて停止中' : 'バックエンド接続中'}</span>
-            <span className="mono">BUN</span>
+            <span className={`live-dot ${!connected || status?.stopped ? 'off' : ''}`} />
+            <span>
+              {!connected ? '再接続中…' : status?.stopped ? 'すべて停止中' : 'サーバー接続済み'}
+            </span>
+            <span className="mono">LOCAL</span>
           </div>
         </div>
       </aside>
@@ -230,7 +256,7 @@ export function App() {
             >
               {sidebar ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
             </button>
-            <span className="breadcrumb">Workspace</span>
+            <span className="breadcrumb">{status?.home.split('/').pop() || 'Workspace'}</span>
             <span className="divider">/</span>
             <strong>{currentView}</strong>
           </div>
@@ -239,7 +265,9 @@ export function App() {
               <i
                 className={`live-dot ${snapshot?.conversation.state === 'running' ? 'pulse' : 'off'}`}
               />{' '}
-              親：{stateLabel[snapshot?.conversation.state || 'idle']}
+              {!status?.providerReady
+                ? 'AI未接続'
+                : stateLabel[snapshot?.conversation.state || 'idle']}
             </span>
             <button
               className="icon-button"
@@ -251,13 +279,16 @@ export function App() {
             </button>
           </div>
         </header>
-        {error && (
+        {(error || connectionError) && (
           <div className="error-banner" role="alert">
-            <span>{error}</span>
+            <span>{error || connectionError}</span>
             <button
               className="icon-button"
               aria-label="エラーを閉じる"
-              onClick={() => setError('')}
+              onClick={() => {
+                setError('');
+                setConnectionError('');
+              }}
             >
               <X size={16} />
             </button>
@@ -280,18 +311,24 @@ export function App() {
         ) : (
           <Suspense fallback={<div className="loading">画面を読み込み中…</div>}>
             {view === 'chat' && (
-              <Chat snapshot={snapshot} status={status} action={action} onView={setView} />
+              <Chat
+                key={snapshot.conversation.id}
+                snapshot={snapshot}
+                status={status}
+                action={action}
+                onView={navigate}
+                drafts={drafts.current}
+              />
             )}
             {view === 'requests' && (
               <section className="page">
                 <div className="page-heading">
-                  <div className="eyebrow">HUMAN INPUT</div>
-                  <h1>あなたの一手が必要なときに。</h1>
-                  <p>回答待ちの間も、エージェントはほかの作業を続けられます。</p>
+                  <h1>入力依頼</h1>
+                  <p>回答や認証が必要な操作を確認できます。</p>
                 </div>
-                {snapshot.requests.length ? (
+                {pending.length ? (
                   <div className="request-list">
-                    {snapshot.requests.map((r) => (
+                    {pending.map((r) => (
                       <RequestCard key={r.id} request={r} action={action} />
                     ))}
                   </div>
@@ -302,17 +339,37 @@ export function App() {
                     <p>回答や本人操作が必要になったら、ここに届きます。</p>
                   </div>
                 )}
+                {snapshot.requests.length > pending.length && (
+                  <details className="request-history">
+                    <summary>
+                      完了した入力依頼（{snapshot.requests.length - pending.length}）
+                    </summary>
+                    <div className="request-list">
+                      {snapshot.requests
+                        .filter((r) => !['pending', 'processing'].includes(r.state))
+                        .map((r) => (
+                          <RequestCard key={r.id} request={r} action={action} />
+                        ))}
+                    </div>
+                  </details>
+                )}
               </section>
             )}
             {view === 'terminal' && <TerminalPanel snapshot={snapshot} action={action} />}
             {view === 'schedules' && <SchedulesPanel snapshot={snapshot} action={action} />}
             {view === 'settings' && (
-              <SettingsPanel status={status} snapshot={snapshot} action={action} onView={setView} />
+              <SettingsPanel
+                initialSection={settingsSection}
+                status={status}
+                snapshot={snapshot}
+                action={action}
+                onView={navigate}
+              />
             )}
             {view === 'memory' && <MemoryPanel action={action} />}
             {view === 'files' && <FilesPanel action={action} />}
             {view === 'desktop' && (
-              <DesktopPanel status={status} action={action} onView={setView} />
+              <DesktopPanel status={status} action={action} onView={navigate} />
             )}
           </Suspense>
         )}

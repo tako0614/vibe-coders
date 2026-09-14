@@ -16,6 +16,7 @@ import {
   Play,
   Plus,
   Search,
+  RefreshCw,
   Square,
   SquareTerminal,
   Trash2,
@@ -24,7 +25,7 @@ import {
 import type { AtomView } from 'atom-memory';
 import { api, operationId, time, stateLabel, type Snapshot, type Status } from './api';
 import type { Action, View } from './App';
-import { CodexLogin } from './CodexLogin';
+import { ProviderSettings } from './ProviderSettings';
 
 function Heading({
   eyebrow,
@@ -39,7 +40,6 @@ function Heading({
 }) {
   return (
     <div className="page-heading">
-      <div className="eyebrow">{eyebrow}</div>
       <div className="heading-row">
         <h1>{title}</h1>
         {children}
@@ -65,11 +65,12 @@ export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action
     <section className="page terminal-page">
       <Heading
         eyebrow="SESSIONS"
-        title="動いている作業を、そのまま。"
+        title="ターミナル"
         description="エージェントと同じ端末を確認・操作できます。UIを閉じても実行は続きます。"
       >
         <button
           className="primary"
+          disabled={snapshot.stopped}
           onClick={() =>
             void action(async () => {
               const run = await api<{ id: string }>('/runs', 'POST', {
@@ -83,46 +84,49 @@ export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action
           <Plus size={15} /> ターミナルを開く
         </button>
       </Heading>
-      <form
-        className="form-card"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          void action(async () => {
-            const run = await api<{ id: string }>('/native', 'POST', {
-              conversationId: snapshot.conversation.id,
-              spec: {
-                adapter: f.get('adapter'),
-                prompt: f.get('prompt'),
-                ...(f.get('resumeId') ? { resumeId: f.get('resumeId') } : {}),
-              },
+      <details className="native-launch">
+        <summary>Codex / Claude Codeに作業を依頼</summary>
+        <form
+          className="form-card"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            void action(async () => {
+              const run = await api<{ id: string }>('/native', 'POST', {
+                conversationId: snapshot.conversation.id,
+                spec: {
+                  adapter: f.get('adapter'),
+                  prompt: f.get('prompt'),
+                  ...(f.get('resumeId') ? { resumeId: f.get('resumeId') } : {}),
+                },
+              });
+              setSelected(run.id);
             });
-            setSelected(run.id);
-          });
-        }}
-      >
-        <div className="form-grid">
+          }}
+        >
+          <div className="form-grid">
+            <label>
+              子エージェント
+              <select name="adapter">
+                <option value="codex">Codex</option>
+                <option value="claude">Claude Code</option>
+              </select>
+            </label>
+            <label>
+              再開するID（省略可）
+              <input name="resumeId" />
+            </label>
+          </div>
           <label>
-            子エージェント
-            <select name="adapter">
-              <option value="codex">Codex</option>
-              <option value="claude">Claude Code</option>
-            </select>
+            依頼
+            <textarea name="prompt" required />
           </label>
-          <label>
-            再開するID（省略可）
-            <input name="resumeId" />
-          </label>
-        </div>
-        <label>
-          依頼
-          <textarea name="prompt" required />
-        </label>
-        <button className="primary">子エージェントを起動</button>
-        <small className="muted">
-          端末側のCLIとログインを使います。同じリポジトリで編集が行われます。
-        </small>
-      </form>
+          <button className="primary">子エージェントを起動</button>
+          <small className="muted">
+            端末側のCLIとログインを使います。同じリポジトリで編集が行われます。
+          </small>
+        </form>
+      </details>
       {!snapshot.runs.length ? (
         <Empty
           icon={SquareTerminal}
@@ -183,6 +187,11 @@ export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action
                   )}
                 </div>
               </div>
+              {run.kind === 'terminal' && run.state !== 'running' && (
+                <div className="terminal-ended">
+                  この端末は終了しています。続けるには「ターミナルを開く」で新しく開いてください。
+                </div>
+              )}
               {run.kind === 'terminal' ? (
                 <TerminalView key={run.id} run={run} action={action} />
               ) : (
@@ -191,12 +200,14 @@ export function TerminalPanel({ snapshot, action }: { snapshot: Snapshot; action
               <div className="terminal-footer">
                 {run.host}
                 {run.kind === 'terminal' &&
-                  ` · ${run.owner === 'human' ? 'あなたが操作中' : 'エージェントが操作可能'}`}
+                  ` · ${run.state !== 'running' ? '終了した端末' : run.owner === 'human' ? 'あなたが操作中' : 'AIが操作中'}`}
                 <span>
-                  終了コード {run.exitCode ?? '—'} · ターン状態{' '}
-                  {run.kind === 'native' && run.state !== 'interrupted'
-                    ? String(run.result?.turnState || 'unknown')
-                    : '不明'}
+                  {run.exitCode !== null
+                    ? `終了コード ${run.exitCode}`
+                    : run.state === 'interrupted'
+                      ? 'サーバーの再起動で終了しました'
+                      : '実行中'}
+                  {run.kind === 'native' && ` · ${String(run.result?.turnState || run.state)}`}
                 </span>
               </div>
             </div>
@@ -310,10 +321,10 @@ function TerminalView({ run, action }: { run: Snapshot['runs'][number]; action: 
       cursorBlink: true,
       scrollback: 3000,
       theme: {
-        background: '#202522',
-        foreground: '#e6e9e1',
-        cursor: '#a6c79e',
-        selectionBackground: '#4e6652',
+        background: '#202938',
+        foreground: '#e6ebf4',
+        cursor: '#91a9ff',
+        selectionBackground: '#43567d',
       },
       allowProposedApi: true,
     });
@@ -321,12 +332,17 @@ function TerminalView({ run, action }: { run: Snapshot['runs'][number]; action: 
     terminal.loadAddon(fit);
     terminal.open(container.current!);
     fit.fit();
+    if (current.current.owner === 'human' && current.current.state === 'running') terminal.focus();
     let disposed = false,
       offset = 0,
       timer: ReturnType<typeof setTimeout>;
+    let lastSize = '';
     const resize = () => {
       if (disposed) return;
       fit.fit();
+      const size = `${terminal.cols}:${terminal.rows}`;
+      if (size === lastSize) return;
+      lastSize = size;
       if (
         current.current.kind === 'terminal' &&
         current.current.owner === 'human' &&
@@ -345,10 +361,37 @@ function TerminalView({ run, action }: { run: Snapshot['runs'][number]; action: 
       resizeFrame = requestAnimationFrame(resize);
     });
     observer.observe(container.current!);
+    let queued = '',
+      inputTimer: ReturnType<typeof setTimeout> | undefined;
+    let writes = Promise.resolve();
+    const flushInput = () => {
+      inputTimer = undefined;
+      const row = current.current;
+      const text = queued;
+      queued = '';
+      if (disposed || row.owner !== 'human' || row.state !== 'running') return;
+      for (let start = 0; start < text.length;) {
+        let end = Math.min(start + 16000, text.length);
+        if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
+        const chunk = text.slice(start, end);
+        start = end;
+        writes = writes
+          .then(async () => {
+            if (!disposed)
+              await api(`/runs/${row.id}/write`, 'POST', { text: chunk, epoch: row.epoch });
+          })
+          .catch((error) => {
+            if (!disposed)
+              terminal.writeln(
+                `\r\n入力できませんでした: ${error instanceof Error ? error.message : '接続を確認してください'}`,
+              );
+          });
+      }
+    };
     const input = terminal.onData((text) => {
-      const r = current.current;
-      if (r.owner === 'human' && r.state === 'running')
-        void action(() => api(`/runs/${r.id}/write`, 'POST', { text, epoch: r.epoch }));
+      if (current.current.owner !== 'human' || current.current.state !== 'running') return;
+      queued += text;
+      inputTimer ??= setTimeout(flushInput, 8);
     });
     const poll = async () => {
       try {
@@ -373,6 +416,7 @@ function TerminalView({ run, action }: { run: Snapshot['runs'][number]; action: 
       clearTimeout(timer);
       observer.disconnect();
       cancelAnimationFrame(resizeFrame);
+      clearTimeout(inputTimer);
       input.dispose();
       terminal.dispose();
     };
@@ -391,7 +435,7 @@ export function SchedulesPanel({ snapshot, action }: { snapshot: Snapshot; actio
     <section className="page">
       <Heading
         eyebrow="SCHEDULES"
-        title="あとで、を実行につなげる。"
+        title="予定"
         description="指定した時刻に指示やコマンドを実行します。停止中に過ぎた周期は一回にまとめます。"
       >
         <button className="primary" onClick={() => setEditing('new')}>
@@ -506,29 +550,38 @@ export function SchedulesPanel({ snapshot, action }: { snapshot: Snapshot; actio
             <input type="checkbox" name="enabled" defaultChecked={existing?.enabled ?? true} />
             有効にする
           </label>
-          <label>
-            起動条件
-            <select name="event" defaultValue={existing?.trigger?.event || ''}>
-              <option value="">指定日時・周期</option>
-              <option value="run.completed">実行が終了したら</option>
-              <option value="human.resolved">入力依頼が解決したら</option>
-              <option value="user.message">メッセージを受信したら</option>
-            </select>
-          </label>
-          <div className="form-grid">
-            <label>
-              対象の実行ID（省略可）
-              <input name="runId" defaultValue={existing?.trigger?.runId} />
-            </label>
-            <label>
-              対象の入力依頼ID（省略可）
-              <input name="requestId" defaultValue={existing?.trigger?.requestId} />
-            </label>
-          </div>
-          <label className="checkbox">
-            <input type="checkbox" name="repeatEvent" defaultChecked={existing?.trigger?.repeat} />
-            条件が成立するたびに実行
-          </label>
+          <details className="advanced-options" open={!!existing?.trigger}>
+            <summary>イベントを条件に実行</summary>
+            <div>
+              <label>
+                起動条件
+                <select name="event" defaultValue={existing?.trigger?.event || ''}>
+                  <option value="">指定日時・周期</option>
+                  <option value="run.completed">実行が終了したら</option>
+                  <option value="human.resolved">入力依頼が解決したら</option>
+                  <option value="user.message">メッセージを受信したら</option>
+                </select>
+              </label>
+              <div className="form-grid">
+                <label>
+                  対象の実行ID（省略可）
+                  <input name="runId" defaultValue={existing?.trigger?.runId} />
+                </label>
+                <label>
+                  対象の入力依頼ID（省略可）
+                  <input name="requestId" defaultValue={existing?.trigger?.requestId} />
+                </label>
+              </div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  name="repeatEvent"
+                  defaultChecked={existing?.trigger?.repeat}
+                />
+                条件が成立するたびに実行
+              </label>
+            </div>
+          </details>
           <small className="muted">
             親への周期指示ではモデル利用料金が発生する場合があります。
           </small>
@@ -598,47 +651,20 @@ export function SchedulesPanel({ snapshot, action }: { snapshot: Snapshot; actio
 
 export function SettingsPanel({
   status,
+  initialSection = 'model',
   snapshot,
   action,
   onView,
 }: {
   status: Status;
+  initialSection?: string;
   snapshot: Snapshot;
   action: Action;
-  onView: (v: View) => void;
+  onView: (v: View, section?: string) => void;
 }) {
   const [mcpForm, setMcpForm] = useState(false),
-    [desktopForm, setDesktopForm] = useState(false),
-    [providerKind, setProviderKind] = useState(status.config.provider?.kind || 'openai'),
-    [codexModels, setCodexModels] = useState<{ id: string; name: string; isDefault: boolean }[]>(
-      [],
-    ),
-    [codexModel, setCodexModel] = useState(
-      status.config.provider?.kind === 'codex' ? status.config.provider.model : '',
-    ),
-    [modelsError, setModelsError] = useState('');
-  useEffect(() => {
-    if (providerKind !== 'codex') return;
-    let disposed = false;
-    void api<{ id: string; name: string; isDefault: boolean }[]>('/codex/models')
-      .then((models) => {
-        if (disposed) return;
-        setCodexModels(models);
-        setCodexModel(
-          (current) => current || models.find((m) => m.isDefault)?.id || models[0]?.id || '',
-        );
-        setModelsError('');
-      })
-      .catch(() => {
-        if (!disposed)
-          setModelsError(
-            'モデル一覧を取得できませんでした。Codex CLIとログインを確認してください。',
-          );
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [providerKind]);
+    [desktopForm, setDesktopForm] = useState(false);
+  const [section, setSection] = useState(initialSection);
   const key = (targetId: string) =>
     action(async () => {
       await api('/config/secret-request', 'POST', {
@@ -651,159 +677,26 @@ export function SettingsPanel({
     <section className="page settings-page">
       <Heading
         eyebrow="SETTINGS & CONNECTIONS"
-        title="あなたの環境につなぐ。"
-        description="モデル・接続先・資格情報は、この端末に保存します。リポジトリには含めません。"
+        title="設定・接続"
+        description="AIやツールの接続、実行環境を管理します。"
       />
-      <form
-        className="form-card"
-        key={`provider-${providerKind}-${status.config.provider?.revision || 0}`}
-        onSubmit={(e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          void action(() =>
-            api('/config/provider', 'PUT', {
-              revision: status.config.revision,
-              provider: {
-                kind: providerKind,
-                baseUrl:
-                  providerKind === 'codex'
-                    ? 'https://chatgpt.com/backend-api/codex'
-                    : String(f.get('baseUrl')),
-                model: providerKind === 'codex' ? codexModel : String(f.get('model')),
-                supportsImages: providerKind === 'codex' || f.get('supportsImages') === 'on',
-                keyRequired: providerKind !== 'codex' && f.get('keyRequired') === 'on',
-              },
-            }),
-          );
-        }}
-      >
-        <div className="section-heading">
-          <span className="list-icon">
-            <Brain size={19} />
-          </span>
-          <div>
-            <h2>親エージェントのモデル</h2>
-            <p>
-              {providerKind === 'codex'
-                ? 'Codexのサブスクで、このエージェントを動かす'
-                : 'OpenAI互換のChat Completions API'}
-            </p>
-          </div>
-          <span className={`status-chip ${status.providerReady ? 'ready' : ''}`}>
-            {(status.config.provider?.kind || 'openai') !== providerKind
-              ? '未保存'
-              : status.providerReady
-                ? '設定済み'
-                : '未設定'}
-          </span>
-        </div>
-        <label>
-          親AIの接続方法
-          <select
-            name="providerKind"
-            value={providerKind}
-            onChange={(e) => setProviderKind(e.target.value as 'openai' | 'codex')}
-          >
-            <option value="codex">Codexサブスク（ChatGPTログイン）</option>
-            <option value="openai">OpenAI互換API（APIキー）</option>
-          </select>
-        </label>
-        {providerKind === 'codex' ? (
-          <>
-            <label>
-              Codexのモデル
-              <input
-                name="model"
-                list="codex-models"
-                value={codexModel}
-                onChange={(e) => setCodexModel(e.target.value)}
-                required
-                placeholder="ログイン後に利用可能なモデルを取得"
-              />
-              <datalist id="codex-models">
-                {codexModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </datalist>
-            </label>
-            {modelsError && <small className="muted">{modelsError}</small>}
-            <p>Codexの契約枠でチャット・MCP・記憶・予定を実行します。</p>
-            <h3>Codexログイン</h3>
-            <CodexLogin conversationId={snapshot.conversation.id} action={action} />
-          </>
-        ) : (
-          <>
-            <label>
-              APIのベースURL
-              <input
-                name="baseUrl"
-                type="url"
-                defaultValue={
-                  status.config.provider?.kind !== 'codex'
-                    ? status.config.provider?.baseUrl || 'https://api.openai.com/v1'
-                    : 'https://api.openai.com/v1'
-                }
-                required
-              />
-            </label>
-            <label>
-              モデルID
-              <input
-                name="model"
-                defaultValue={
-                  status.config.provider?.kind !== 'codex'
-                    ? status.config.provider?.model || ''
-                    : ''
-                }
-                placeholder="プロバイダーのモデルID"
-                required
-              />
-            </label>
-            <div className="form-grid">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  name="supportsImages"
-                  defaultChecked={status.config.provider?.supportsImages ?? true}
-                />
-                画像入力に対応
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  name="keyRequired"
-                  defaultChecked={
-                    status.config.provider?.kind === 'codex'
-                      ? true
-                      : (status.config.provider?.keyRequired ?? true)
-                  }
-                />
-                APIキーが必要
-              </label>
-            </div>
-          </>
-        )}
-        <div className="form-actions">
-          <button className="primary">
-            {providerKind === 'codex' ? 'Codexを親AIに設定' : '接続先を保存'}
+      <div className="settings-tabs" role="tablist" aria-label="設定の種類">
+        {[
+          ['model', 'AI接続'],
+          ['mcp', 'MCP'],
+          ['desktop', 'デスクトップ'],
+          ['search', 'Web検索'],
+          ['system', '保存と実行'],
+        ].map(([id, label]) => (
+          <button key={id} role="tab" aria-selected={section === id} onClick={() => setSection(id)}>
+            {label}
           </button>
-          {providerKind !== 'codex' &&
-            status.config.provider?.kind !== 'codex' &&
-            status.config.provider && (
-              <button type="button" onClick={() => void key('provider:main')}>
-                APIキーを入力
-              </button>
-            )}
-        </div>
-        <small className="muted">
-          {providerKind === 'codex'
-            ? 'ログイン後、設定を保存するとCodexで元のチャットを続けられます。'
-            : '接続先を変更した場合は、APIキーを専用入力で保存し直してください。'}
-        </small>
-      </form>
-      <section className="form-card">
+        ))}
+      </div>
+      {section === 'model' && (
+        <ProviderSettings status={status} snapshot={snapshot} action={action} onView={onView} />
+      )}
+      <section className="form-card" hidden={section !== 'mcp'}>
         <div className="section-heading">
           <span className="list-icon">
             <Link2 size={18} />
@@ -986,7 +879,7 @@ export function SettingsPanel({
           </form>
         )}
       </section>
-      <section className="form-card">
+      <section className="form-card" hidden={section !== 'desktop'}>
         <div className="section-heading">
           <span className="list-icon">
             <Monitor size={18} />
@@ -1077,7 +970,7 @@ export function SettingsPanel({
           </form>
         )}
       </section>
-      <section className="form-card control-card">
+      <section className="form-card control-card" hidden={section !== 'system'}>
         <h2>実行の制御</h2>
         <p>全停止は、親・管理下プロセス・予定からの新規実行を止めます。</p>
         <button
@@ -1093,6 +986,7 @@ export function SettingsPanel({
         </button>
       </section>
       <form
+        hidden={section !== 'search'}
         className="form-card"
         onSubmit={(e) => {
           e.preventDefault();
@@ -1137,6 +1031,7 @@ export function SettingsPanel({
         </div>
       </form>
       <form
+        hidden={section !== 'system'}
         className="form-card"
         onSubmit={(e) => {
           e.preventDefault();
@@ -1196,19 +1091,35 @@ export function SettingsPanel({
 export function MemoryPanel({ action }: { action: Action }) {
   const [query, setQuery] = useState(''),
     [items, setItems] = useState<AtomView[]>([]),
-    [add, setAdd] = useState(false);
-  const search = () =>
-    action(async () =>
-      setItems((await api<{ items: AtomView[] }>(`/memory?q=${encodeURIComponent(query)}`)).items),
-    );
+    [add, setAdd] = useState(false),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState('');
+  const revision = useRef(0);
+  const search = async () => {
+    const request = ++revision.current;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api<{ items: AtomView[] }>(`/memory?q=${encodeURIComponent(query)}`);
+      if (request === revision.current) setItems(result.items);
+    } catch (e) {
+      if (request === revision.current)
+        setError(e instanceof Error ? e.message : '記憶を取得できませんでした。');
+    } finally {
+      if (request === revision.current) setLoading(false);
+    }
+  };
   useEffect(() => {
     void search();
+    return () => {
+      revision.current++;
+    };
   }, []);
   return (
     <section className="page">
       <Heading
         eyebrow="ATOM MEMORY"
-        title="文脈を、次の一歩に。"
+        title="記憶"
         description="必要な記憶を推論のたびに取り出します。記憶の保存や修正も、エージェントに依頼できます。"
       >
         <button className="primary" onClick={() => setAdd(!add)}>
@@ -1230,7 +1141,7 @@ export function MemoryPanel({ action }: { action: Action }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="記憶を検索…"
         />
-        <button>検索</button>
+        <button disabled={loading}>{loading ? '検索中…' : '検索'}</button>
       </form>
       {add && (
         <form
@@ -1243,9 +1154,7 @@ export function MemoryPanel({ action }: { action: Action }) {
               await api('/memory', 'POST', { text });
               form.reset();
               setAdd(false);
-              setItems(
-                (await api<{ items: AtomView[] }>(`/memory?q=${encodeURIComponent(text)}`)).items,
-              );
+              await search();
             });
           }}
         >
@@ -1256,7 +1165,16 @@ export function MemoryPanel({ action }: { action: Action }) {
           <button className="primary">保存</button>
         </form>
       )}
-      {items.length ? (
+      {error && (
+        <p className="inline-error" role="alert">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p className="panel-loading" role="status">
+          記憶を読み込み中…
+        </p>
+      ) : items.length ? (
         <div className="memory-grid">
           {items.map((m) => (
             <article className="memory-card" key={m.ref}>
@@ -1281,92 +1199,167 @@ export function MemoryPanel({ action }: { action: Action }) {
   );
 }
 
+type FilePreview = {
+  path: string;
+  text: string;
+  totalLines: number;
+  nextLine: number | null;
+  sha256: string;
+};
 export function FilesPanel({ action }: { action: Action }) {
   const [path, setPath] = useState('.'),
-    [entries, setEntries] = useState<{ name: string; kind: string }[]>([]),
-    [file, setFile] = useState<{
-      path: string;
-      text: string;
-      totalLines: number;
-      nextLine: number | null;
-      sha256: string;
-    }>();
+    [refresh, setRefresh] = useState(0);
+  const [entries, setEntries] = useState<{ name: string; kind: string }[]>([]);
+  const [file, setFile] = useState<FilePreview>(),
+    [selected, setSelected] = useState('');
+  const [loading, setLoading] = useState(true),
+    [reading, setReading] = useState(false),
+    [error, setError] = useState('');
+  const [filter, setFilter] = useState('');
+  const selection = useRef(0);
   useEffect(() => {
-    void action(async () => {
-      const listing = await api<{ entries: typeof entries }>(
-        `/files?path=${encodeURIComponent(path)}`,
+    let current = true;
+    selection.current++;
+    setLoading(true);
+    setFile(undefined);
+    setSelected('');
+    setError('');
+    setEntries([]);
+    setReading(false);
+    setFilter('');
+    void api<{ entries: typeof entries }>(`/files?path=${encodeURIComponent(path)}`)
+      .then((value) => {
+        if (current)
+          setEntries(
+            value.entries.sort(
+              (a, b) =>
+                Number(b.kind === 'directory') - Number(a.kind === 'directory') ||
+                a.name.localeCompare(b.name),
+            ),
+          );
+      })
+      .catch((e) => {
+        if (current) setError(e.message);
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+    return () => {
+      current = false;
+      selection.current++;
+    };
+  }, [path, refresh]);
+  const read = async (target: string, previous?: FilePreview) => {
+    const revision = ++selection.current;
+    setSelected(target);
+    setReading(true);
+    setError('');
+    if (!previous) setFile(undefined);
+    try {
+      const value = await api<FilePreview>(
+        `/files/read?path=${encodeURIComponent(target)}${previous ? `&startLine=${previous.nextLine}` : ''}`,
       );
-      setEntries(listing.entries);
-      setFile(undefined);
-    });
-  }, [path]);
+      if (selection.current !== revision) return;
+      if (previous && previous.sha256 !== value.sha256)
+        throw new Error('読み込み中にファイルが変更されました。開き直してください。');
+      setFile(previous ? { ...value, text: previous.text + '\n' + value.text } : value);
+    } catch (e) {
+      if (selection.current === revision)
+        setError(e instanceof Error ? e.message : 'ファイルを読み込めませんでした。');
+    } finally {
+      if (selection.current === revision) setReading(false);
+    }
+  };
+  const visible = entries.filter((entry) =>
+    entry.name.toLowerCase().includes(filter.toLowerCase()),
+  );
   return (
     <section className="page">
       <Heading
         eyebrow="FILES"
-        title="作業の拠点をひらく。"
-        description="親エージェントと、新しく開くターミナルはこのHomeから作業します。"
+        title="ファイル"
+        description="作業フォルダ内のファイルと実装内容を確認できます。"
       />
       <div className="file-browser">
         <div className="file-path">
           <button
             className="icon-button"
             aria-label="親フォルダへ"
-            onClick={() =>
-              setPath(path === '.' ? '.' : path.split('/').slice(0, -1).join('/') || '.')
-            }
+            disabled={path === '.'}
+            onClick={() => setPath(path.split('/').slice(0, -1).join('/') || '.')}
           >
             <ArrowLeft size={16} />
           </button>
-          <code>{path}</code>
+          <button className="text-button" onClick={() => setPath('.')}>
+            Home
+          </button>
+          <code>{path === '.' ? '/' : path.slice(2)}</code>
+          <button
+            className="icon-button file-refresh"
+            aria-label="ファイルを再読み込み"
+            onClick={() => setRefresh((n) => n + 1)}
+          >
+            <RefreshCw size={15} />
+          </button>
         </div>
+        {error && (
+          <div className="inline-error" role="alert">
+            {error}
+          </div>
+        )}
         <div className="file-columns">
           <div className="file-list">
-            {entries.map((e) => (
-              <button
-                key={e.name}
-                onClick={() =>
-                  e.kind === 'directory'
-                    ? setPath(`${path}/${e.name}`)
-                    : void action(async () =>
-                        setFile(
-                          await api(`/files/read?path=${encodeURIComponent(`${path}/${e.name}`)}`),
-                        ),
-                      )
-                }
-              >
-                {e.kind === 'directory' ? <Folder size={16} /> : <FileText size={16} />}
-                <span>{e.name}</span>
-              </button>
-            ))}
+            <input
+              className="file-filter"
+              aria-label="ファイル名で絞り込み"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="ファイル名で絞り込み"
+            />
+            {loading ? (
+              <p className="panel-loading" role="status">
+                読み込み中…
+              </p>
+            ) : !visible.length ? (
+              <p className="panel-loading">
+                {filter ? '一致するファイルはありません' : '空のフォルダです'}
+              </p>
+            ) : (
+              visible.map((entry) => {
+                const target = `${path}/${entry.name}`;
+                return (
+                  <button
+                    key={entry.name}
+                    className={selected === target ? 'selected' : ''}
+                    onClick={() =>
+                      entry.kind === 'directory' ? setPath(target) : void read(target)
+                    }
+                  >
+                    {entry.kind === 'directory' ? <Folder size={16} /> : <FileText size={16} />}
+                    <span>{entry.name}</span>
+                  </button>
+                );
+              })
+            )}
           </div>
-          <div className="file-content">
+          <div className="file-content" aria-busy={reading}>
             {file ? (
               <>
                 <div className="file-info">
                   <code>{file.path.split('/').pop()}</code>
-                  <span>{file.totalLines} lines</span>
+                  <span>{file.totalLines} 行</span>
                 </div>
                 <pre>{file.text}</pre>
                 {file.nextLine && (
-                  <button
-                    onClick={() =>
-                      void action(async () => {
-                        const next = await api<typeof file>(
-                          `/files/read?path=${encodeURIComponent(file.path)}&startLine=${file.nextLine}`,
-                        );
-                        if (next?.sha256 !== file.sha256)
-                          throw new Error(
-                            '読み込み中にファイルが変更されました。開き直してください。',
-                          );
-                        setFile({ ...next, text: file.text + '\n' + next.text });
-                      })
-                    }
-                  >
-                    続きを読む
+                  <button disabled={reading} onClick={() => void read(selected, file)}>
+                    {reading ? '読み込み中…' : '続きを読む'}
                   </button>
                 )}
               </>
+            ) : reading ? (
+              <p className="panel-loading" role="status">
+                ファイルを読み込み中…
+              </p>
             ) : (
               <Empty
                 icon={FileText}
@@ -1388,7 +1381,7 @@ export function DesktopPanel({
 }: {
   status: Status;
   action: Action;
-  onView: (v: View) => void;
+  onView: (v: View, section?: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null),
     [connection, setConnection] = useState('未接続');
@@ -1427,7 +1420,7 @@ export function DesktopPanel({
     <section className="page desktop-page">
       <Heading
         eyebrow="SHARED DESKTOP"
-        title="同じ画面を、一緒に。"
+        title="デスクトップ"
         description="手動操作中は、この画面への管理下のAI観測・入力を止めます。親のほかの作業は続きます。"
       >
         {status.desktop.configured && (
@@ -1451,7 +1444,7 @@ export function DesktopPanel({
           <Monitor size={30} />
           <h3>デスクトップを接続する</h3>
           <p>既存デスクトップのX11またはVNC接続を設定します。</p>
-          <button onClick={() => onView('settings')}>
+          <button onClick={() => onView('settings', 'desktop')}>
             接続設定へ <ArrowUpRight size={14} />
           </button>
         </div>

@@ -18,13 +18,16 @@ export function CodexLogin({
   conversationId,
   action,
   requestId,
+  beforeLogin,
 }: {
   conversationId: string;
   action: Action;
   requestId?: string;
+  beforeLogin?: () => Promise<void>;
 }) {
   const [auth, setAuth] = useState<Auth>();
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''),
+    [starting, setStarting] = useState(false);
   const refresh = async () => {
     await api('/codex/auth/refresh', 'POST', {});
     setAuth(await api<Auth>('/codex/auth'));
@@ -52,18 +55,30 @@ export function CodexLogin({
       clearTimeout(timer);
     };
   }, []);
-  const busy = auth?.state === 'starting' || auth?.state === 'waiting';
+  const busy = starting || auth?.state === 'starting' || auth?.state === 'waiting';
   const login = !requestId || auth?.requestId === requestId ? auth?.login : null;
   const start = (method: 'device' | 'browser') =>
     action(async () => {
-      await api('/codex/auth/login', 'POST', { conversationId, method });
-      setAuth(await api<Auth>('/codex/auth'));
+      setStarting(true);
+      try {
+        await beforeLogin?.();
+        await api('/codex/auth/login', 'POST', { conversationId, method });
+        setAuth(await api<Auth>('/codex/auth'));
+      } finally {
+        setStarting(false);
+      }
     });
   return (
     <div className="codex-login">
       <p>
-        <strong>{labels[auth?.state || 'unchecked']}</strong>
-        {auth?.mode ? ` · ${auth.mode}` : ''}
+        <strong>
+          {starting
+            ? '接続を準備中…'
+            : !auth || auth.state === 'unchecked'
+              ? '認証状態を確認中…'
+              : labels[auth.state]}
+        </strong>
+        {auth?.subscriptionReady ? ' · ChatGPT' : ''}
       </p>
       {auth?.ready && !auth.subscriptionReady && (
         <p>ChatGPTのサブスク認証へログインしてください。</p>
@@ -89,7 +104,7 @@ export function CodexLogin({
         <button type="button" disabled={busy} onClick={() => void action(refresh)}>
           認証状態を確認
         </button>
-        {!auth?.subscriptionReady && !busy && (
+        {auth && auth.state !== 'unchecked' && !auth.subscriptionReady && !busy && (
           <>
             <button
               type="button"
@@ -97,14 +112,14 @@ export function CodexLogin({
               disabled={auth?.installed === false}
               onClick={() => void start('device')}
             >
-              コードでログイン
+              {beforeLogin ? 'ログインして接続' : 'コードでログイン'}
             </button>
             <button
               type="button"
               disabled={auth?.installed === false}
               onClick={() => void start('browser')}
             >
-              このPCのブラウザでログイン
+              サーバー上のブラウザでログイン
             </button>
           </>
         )}
@@ -121,12 +136,12 @@ export function CodexLogin({
             ログインを中止
           </button>
         )}
-        {!busy && auth?.ready && (
+        {!busy && auth?.ready && auth.desktopOwner === 'human' && (
           <button
             type="button"
             onClick={() => void action(() => api('/desktop/handoff', 'POST', { owner: 'agent' }))}
           >
-            安全な画面でAIに返す
+            ブラウザ・画面操作をAIに戻す
           </button>
         )}
       </div>

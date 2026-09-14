@@ -8,7 +8,7 @@
 
 Bun 1.3.14以上が必要です。初期の検証対象はLinuxです。
 
-配布版は `npm install -g vibe-coders@0.1.5` で導入できます。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
+配布版は `npm install -g vibe-coders@0.1.6` で導入できます。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
 
 ```sh
 git clone https://github.com/tako0614/vibe-coders.git
@@ -19,7 +19,7 @@ bun run init        # 現在の場所に atom.toml / AGENT.md を作成（既存
 bun run dev
 ```
 
-開発画面は **http://127.0.0.1:5173**。親AIは「設定・接続」で **Codexサブスク（ChatGPTログイン）** またはOpenAI互換APIを選べます。Codexを選ぶ場合はログインしてモデルを選択し、「Codexを親AIに設定」で保存します。OpenAI互換APIの場合はURL・モデルID・APIキーを設定します。モデル未設定でも、設定・入力カード・ターミナルは利用できます。
+開発画面は **http://127.0.0.1:5173**。親AIは「設定・接続」で **Codexサブスク（ChatGPTログイン）** またはOpenAI互換APIを選べます。Codexを選ぶ場合はモデルを選んで「ログインして接続」を押します。ログイン済みなら「このモデルでチャットを始める」で接続できます。OpenAI互換APIの場合はURL・モデルID・APIキーを設定します。モデル未設定でも、設定・入力カード・ターミナルは利用できます。
 
 通常起動ではビルド済みReactをHonoから配信します。
 
@@ -97,4 +97,4 @@ bun run db:generate    # Drizzleスキーマ変更時にmigrationを生成
 
 DBのmigrationはバックエンド起動時に適用します。依存は `bun.lock` に固定しています。Atom Memoryはnpm公開済みの0.7.0を使い、SQLiteドライバのimportだけをBun向けに変更したパッチを管理しています。
 
-設計全体は [plan.md](plan.md)、実装範囲・実機検証・外部条件待ちは [実装状況](docs/implementation.md)、配布方法は [配布・運用](docs/distribution.md) に記録しています。Codexサブスクによる親のファイル操作・記憶・人間入力と、親がMCPを登録して実Chromeを読むところまで確認しています。OpenAI互換APIの実接続、Claudeの再ログイン、各OSの実機検証などは残っています。
+0.1.6の修正と検証範囲は [動作修正と画面整理](docs/debugging-0.1.6.md)。設計全体は [plan.md](plan.md)、実装範囲・実機検証・外部条件待ちは [実装状況](docs/implementation.md)、配布方法は [配布・運用](docs/distribution.md) に記録しています。Codexサブスクによる親のファイル操作・記憶・人間入力と、親がMCPを登録して実Chromeを読むところまで確認しています。OpenAI互換APIの実接続、Claudeの再ログイン、各OSの実機検証などは残っています。

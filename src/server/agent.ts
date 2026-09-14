@@ -77,14 +77,31 @@ export class Agent {
     this.scheduled = true;
     queueMicrotask(() => {
       this.scheduled = false;
-      if (this.closing || this.store.stopped) return;
+      if (this.closing || this.store.stopped || this.model.isConfigured?.() === false) return;
       for (const c of this.store.listConversations())
         if (!c.paused && this.store.inbox(c.id).length && this.shouldWake(c.id)) this.start(c.id);
     });
   };
   private shouldWake(id: string) {
     const c = this.store.conversation(id);
-    if (!c.wait) return true;
+    if (c.state === 'error' && !this.store.inbox(id).some((event) => event.type === 'user.message'))
+      return false;
+    if (!c.wait)
+      return (
+        this.store
+          .inbox(id)
+          .some(
+            (e) =>
+              e.type === 'user.message' ||
+              (e.type === 'schedule.fired' && e.payload.action === 'prompt'),
+          ) ||
+        this.store
+          .history(id)
+          .some(
+            (m) =>
+              m.body.role === 'assistant' || (m.body.role === 'user' && !m.id.startsWith('event-')),
+          )
+      );
     return this.store
       .inbox(id)
       .some((e) =>
@@ -136,6 +153,13 @@ export class Agent {
     }
     this.store.notify();
   }
+  retry(id: string) {
+    this.store.assertEnabled();
+    const conversation = this.store.conversation(id);
+    if (conversation.state !== 'error')
+      throw new Error('この会話には再試行するエラーがありません。');
+    this.pause(id, false);
+  }
   stopAll() {
     this.store.set('stopped', true);
     for (const a of this.active.values()) a.controller.abort();
@@ -186,6 +210,21 @@ export class Agent {
   recover() {
     for (const c of this.store.listConversations()) {
       this.repairIncompleteTools(c.id);
+      if (
+        c.state === 'error' &&
+        !this.store
+          .history(c.id)
+          .some(
+            (m) =>
+              m.body.role === 'assistant' || (m.body.role === 'user' && !m.id.startsWith('event-')),
+          )
+      ) {
+        this.store.db
+          .update(conversations)
+          .set({ state: c.paused ? 'paused' : 'idle' })
+          .where(eq(conversations.id, c.id))
+          .run();
+      }
       if (c.state === 'running') {
         this.store.db
           .update(conversations)

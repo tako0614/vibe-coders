@@ -136,6 +136,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       mcp: r.mcp.status(),
       desktop: r.desktop.status(),
       stopped: r.store.stopped,
+      codex: r.codex.status(),
       providerReady:
         !!r.config.read().provider &&
         (r.config.read().provider!.kind === 'codex'
@@ -184,6 +185,10 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     r.agent.pause(c.req.param('id'), body.paused);
     return c.json({ paused: body.paused });
   });
+  app.post('/api/conversations/:id/retry', (c) => {
+    r.agent.retry(c.req.param('id'));
+    return c.json({ accepted: true }, 202);
+  });
   app.post('/api/control', async (c) => {
     const { action } = z.object({ action: z.enum(['stop', 'enable']) }).parse(await c.req.json());
     if (action === 'stop') r.agent.stopAll();
@@ -192,7 +197,8 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
   });
   app.get('/api/events', (c) =>
     streamSSE(c, async (stream) => {
-      let dirty = true;
+      let dirty = true,
+        lastHeartbeat = Date.now();
       const mark = () => {
         dirty = true;
       };
@@ -207,6 +213,10 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
           if (dirty) {
             dirty = false;
             await stream.writeSSE({ event: 'change', data: String(Date.now()) });
+            lastHeartbeat = Date.now();
+          } else if (Date.now() - lastHeartbeat >= 10000) {
+            await stream.write(': heartbeat\n\n');
+            lastHeartbeat = Date.now();
           }
           await stream.sleep(300);
         }
@@ -289,7 +299,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       .parse(await c.req.json());
     return c.json(
       body.kind === 'terminal'
-        ? r.runs.terminal(body.conversationId)
+        ? r.runs.handoff(r.runs.terminal(body.conversationId).id, 'human')
         : r.runs.shell(body.conversationId, z.string().min(1).parse(body.command)),
       201,
     );

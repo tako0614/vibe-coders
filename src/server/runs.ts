@@ -223,6 +223,7 @@ export class RunService {
       const proc = Bun.spawn(command || [defaultShell, '-i'], {
         cwd: row.cwd,
         env: shellEnvironment(),
+        detached: true,
         terminal,
       });
       Object.assign(this.live.get(row.id)!, {

@@ -7,7 +7,7 @@
 Bun 1.3.14以上を先にインストールしてください。
 
 ```sh
-npm install -g vibe-coders@0.1.5
+npm install -g vibe-coders@0.1.6
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -41,7 +41,7 @@ VNC方式は、RFB 3.3 / 3.7 / 3.8のraw encodingとNone / 標準VNC password au
 
 MCP接続の「追加したい機能」やチャットから「Chromeを導入してMCPで接続して」と依頼できます。親がOS・既存環境を確認し、通常のChromeと必要なMCPを導入・登録・接続します。親モデルと対象ホストへの操作経路が必要です。Chromeのリモートデバッグ許可など、本人操作が必要な箇所は入力カードへ回します。
 
-CodexサブスクはCodex CLIのファイル認証を使います。WebUIの親モデル設定か `vibe-coders codex login` からChatGPTログインし、モデルを選んで「Codexを親AIに設定」で保存してください。CLIで設定する場合は `vibe-coders provider configure --kind codex --model MODEL_ID` です。親はアプリ内のResponses接続で推論し、Vibe CodersがMCP・ファイル・予定・記憶を実行します。APIキーは不要です。
+CodexサブスクはCodex CLIのファイル認証を使います。WebUIの親モデル設定か `vibe-coders codex login` からChatGPTログインし、モデルを選んで「ログインして接続」を押してください。ログイン済みなら「このモデルでチャットを始める」で接続できます。CLIで設定する場合は `vibe-coders provider configure --kind codex --model MODEL_ID` です。親はアプリ内のResponses接続で推論し、Vibe CodersがMCP・ファイル・予定・記憶を実行します。APIキーは不要です。
 
 認証が必要な間は親の推論を待機し、ログイン完了で元の依頼を再開します。Codexが認証情報を保存・更新し、アプリが認証情報を会話・モデル入力・Atomへ渡すことはありません。サブスクの利用枠不足をAPI課金へ自動で切り替えません。Codexのサブスク向け接続仕様の変更によって更新が必要になる場合があります。
 

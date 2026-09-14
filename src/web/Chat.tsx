@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ArrowDown,
   ArrowUp,
   ArrowUpRight,
   Check,
@@ -21,6 +22,9 @@ import type { Action, View } from './App';
 import type { HumanRequest } from '../server/db/schema';
 import { CodexLogin } from './CodexLogin';
 import type { ImagePart } from '../shared/contracts';
+import { ActivityHistory, ToolActivity } from './Activity';
+
+export type ComposerDraft = { text: string; images: ImagePart[] };
 
 export function RequestCard({ request: r, action }: { request: HumanRequest; action: Action }) {
   const [busy, setBusy] = useState(false),
@@ -194,23 +198,42 @@ export function Chat({
   status,
   action,
   onView,
+  drafts,
 }: {
   snapshot: Snapshot;
   status: Status;
   action: Action;
   onView: (view: View) => void;
+  drafts: Map<string, ComposerDraft>;
 }) {
-  const [text, setText] = useState(''),
-    [images, setImages] = useState<ImagePart[]>([]),
+  const [text, setText] = useState(drafts.get(s.conversation.id)?.text || ''),
+    [images, setImages] = useState<ImagePart[]>(drafts.get(s.conversation.id)?.images || []),
     [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null),
     area = useRef<HTMLTextAreaElement>(null),
     attachment = useRef<HTMLInputElement>(null);
-  const messages = s.messages.filter((m) => m.body.role !== 'tool');
+  const scroll = useRef<HTMLDivElement>(null),
+    follow = useRef(true);
+  const [showLatest, setShowLatest] = useState(false);
+  const messages = s.messages.filter(
+    (m) => m.body.role !== 'tool' && m.body.role !== 'system' && !m.id.startsWith('event-'),
+  );
+  const activities = s.messages.filter(
+    (m) => m.body.role === 'system' || m.id.startsWith('event-'),
+  );
+  const failure =
+    s.conversation.state === 'error'
+      ? [...s.messages].reverse().find((m) => m.body.role === 'system')?.body.content
+      : undefined;
   const pending = s.requests.filter((r) => r.state === 'pending' || r.state === 'processing');
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [s.messages.length]);
+    drafts.set(s.conversation.id, { text, images });
+  }, [text, images, drafts, s.conversation.id]);
+  useEffect(() => {
+    if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+    else setShowLatest(true);
+  }, [s.messages.length, s.draft, pending.length]);
+  const retry = () => action(() => api(`/conversations/${s.conversation.id}/retry`, 'POST', {}));
   const send = async () => {
     if (busy || (!text.trim() && !images.length)) return;
     setBusy(true);
@@ -222,28 +245,42 @@ export function Chat({
       });
       setText('');
       setImages([]);
+      drafts.delete(s.conversation.id);
+      follow.current = true;
+      if (!status.providerReady) onView('settings');
     });
     setBusy(false);
     area.current?.focus();
   };
   return (
     <main className="chat-layout">
-      <div className="chat-scroll">
+      <div
+        className="chat-scroll"
+        ref={scroll}
+        onScroll={() => {
+          const node = scroll.current;
+          if (!node) return;
+          follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100;
+          if (follow.current) setShowLatest(false);
+        }}
+      >
         {!messages.length ? (
           <div className="welcome">
-            <div className="welcome-mark">
-              <span />
-              <span />
-              <span />
-              <span />
+            <div className="welcome-repo">
+              <SquareTerminal size={22} />
+              <span>{status.home.split('/').pop()}</span>
             </div>
-            <div className="eyebrow">YOUR REPOSITORY. YOUR AGENT.</div>
-            <h1>今日、何を進めますか。</h1>
+            <h1>{status.providerReady ? '何をつくりますか？' : 'AIを接続して、作業を始める'}</h1>
             <p>
-              調べる、つくる、確かめる。
-              <br />
-              このリポジトリから、作業を一緒に進めましょう。
+              {status.providerReady
+                ? 'コードの調査から実装、動作確認まで。やりたいことを伝えてください。'
+                : 'Codexのサブスクリプション、またはAPIキーで接続できます。'}
             </p>
+            {!status.providerReady && (
+              <button className="primary welcome-connect" onClick={() => onView('settings')}>
+                AIを接続する <ArrowUpRight size={15} />
+              </button>
+            )}
             <div className="suggestions">
               {[
                 [
@@ -273,12 +310,6 @@ export function Chat({
                 );
               })}
             </div>
-            {!status.providerReady && (
-              <button className="setup-nudge" onClick={() => onView('settings')}>
-                <i className="live-dot amber" /> 最初にモデル接続を設定する{' '}
-                <ArrowUpRight size={14} />
-              </button>
-            )}
           </div>
         ) : (
           <div className="message-list">
@@ -320,27 +351,9 @@ export function Chat({
                       alt="添付画像"
                     />
                   ))}
-                  {m.body.toolCalls?.map((call) => {
-                    const result = s.messages.find(
-                      (message) => message.body.toolCallId === call.id,
-                    );
-                    return (
-                      <details className="tool-card" key={call.id}>
-                        <summary>
-                          <ChevronRight size={13} />
-                          {result ? (
-                            <Check size={13} />
-                          ) : (
-                            <LoaderCircle size={13} className="spin" />
-                          )}
-                          <code>{call.name}</code>
-                          <span>{result ? '結果を表示' : '実行中'}</span>
-                        </summary>
-                        <pre>{call.arguments}</pre>
-                        {result && <pre>{result.body.content}</pre>}
-                      </details>
-                    );
-                  })}
+                  {m.body.toolCalls?.map((call) => (
+                    <ToolActivity key={call.id} call={call} snapshot={s} />
+                  ))}
                 </div>
               </article>
             ))}
@@ -360,6 +373,20 @@ export function Chat({
             )}
           </div>
         )}
+        {failure && messages.length > 0 && (
+          <div className="chat-error" role="alert">
+            <strong>作業が止まりました</strong>
+            <p>{failure}</p>
+            <div>
+              <button onClick={() => (status.providerReady ? void retry() : onView('settings'))}>
+                {status.providerReady ? 'もう一度試す' : 'AI接続を設定'}
+              </button>
+              <button className="text-button" onClick={() => onView('settings')}>
+                設定を確認
+              </button>
+            </div>
+          </div>
+        )}
         {pending.length > 0 && (
           <div className="inline-requests">
             {pending.slice(0, 2).map((r) => (
@@ -372,9 +399,29 @@ export function Chat({
             )}
           </div>
         )}
+        <ActivityHistory messages={activities} />
         <div ref={end} />
       </div>
       <div className="composer-area">
+        {showLatest && (
+          <button
+            className="latest-button"
+            onClick={() => {
+              follow.current = true;
+              setShowLatest(false);
+              end.current?.scrollIntoView({ block: 'end' });
+            }}
+          >
+            <ArrowDown size={14} />
+            最新へ
+          </button>
+        )}
+        {!status.providerReady && messages.length > 0 && (
+          <div className="wait-note">
+            メッセージは保存済みです。AI接続後に作業を始めます。
+            <button onClick={() => onView('settings')}>AIを接続</button>
+          </div>
+        )}
         {s.conversation.wait && (
           <div className="wait-note">
             <ClockIcon /> {s.conversation.wait.reason}
@@ -428,11 +475,15 @@ export function Chat({
               >
                 <Paperclip size={17} />
               </button>
-              <span className="model-label">
+              <button
+                type="button"
+                className="model-label"
+                onClick={() => onView('settings')}
+                title="AI接続を変更"
+              >
                 <i className={`live-dot ${status.providerReady ? '' : 'off'}`} />
                 {status.config.provider?.model || 'モデル未設定'}
-              </span>
-              <span className="home-pill">Home</span>
+              </button>
             </div>
             <div>
               {['running', 'paused', 'error', 'waiting'].includes(s.conversation.state) && (
@@ -441,15 +492,17 @@ export function Chat({
                   className="icon-button"
                   aria-label={
                     s.conversation.paused || s.conversation.state === 'error'
-                      ? '親を再開'
-                      : '親を一時停止'
+                      ? '作業を再開'
+                      : '作業を一時停止'
                   }
                   onClick={() =>
-                    void action(() =>
-                      api(`/conversations/${s.conversation.id}/pause`, 'POST', {
-                        paused: !(s.conversation.paused || s.conversation.state === 'error'),
-                      }),
-                    )
+                    s.conversation.state === 'error'
+                      ? void retry()
+                      : void action(() =>
+                          api(`/conversations/${s.conversation.id}/pause`, 'POST', {
+                            paused: !s.conversation.paused,
+                          }),
+                        )
                   }
                 >
                   {s.conversation.paused || s.conversation.state === 'error' ? (
@@ -462,9 +515,9 @@ export function Chat({
               <button
                 className="send-button"
                 aria-label="メッセージを送信"
-                disabled={busy || (!text.trim() && !images.length)}
+                disabled={busy || status.stopped || (!text.trim() && !images.length)}
               >
-                <ArrowUp size={18} />
+                {busy ? <LoaderCircle size={18} className="spin" /> : <ArrowUp size={18} />}
               </button>
             </div>
           </div>
@@ -521,7 +574,7 @@ export function Chat({
         />
         <div className="composer-footnote">
           <span>
-            この端末で作業します。
+            コードと実行結果を確認しながら進めましょう。
             <button onClick={() => onView('settings')}>
               接続を管理 <ArrowUpRight size={11} />
             </button>

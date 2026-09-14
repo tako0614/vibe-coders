@@ -2,6 +2,7 @@ import type { Store } from '../server/store';
 import type { Config } from '../server/config';
 import type { Desktop } from '../server/desktop';
 import type { McpService } from '../server/mcp';
+import type { CodexAuth } from '../server/codex-auth';
 export type Snapshot = ReturnType<Store['snapshot']> & { draft: string };
 export type Status = {
   home: string;
@@ -11,6 +12,7 @@ export type Status = {
   desktop: ReturnType<Desktop['status']>;
   stopped: boolean;
   providerReady: boolean;
+  codex: ReturnType<CodexAuth['status']>;
 };
 let authorization = '';
 export function operationId() {
@@ -47,27 +49,68 @@ export async function api<T = unknown>(path: string, method = 'GET', data?: unkn
   if (!response.ok) throw new ApiError(body.error || '操作に失敗しました。', response.status);
   return body as T;
 }
-export async function listen(signal: AbortSignal, onChange: () => void) {
+export async function listen(
+  signal: AbortSignal,
+  onChange: () => void,
+  onConnection: (connected: boolean) => void = () => {},
+) {
   while (!signal.aborted) {
+    const connection = new AbortController();
+    const offline = () => {
+      onConnection(false);
+      connection.abort();
+    };
+    window.addEventListener('offline', offline);
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const heartbeat = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => connection.abort(), 25000);
+    };
     try {
+      heartbeat();
       const response = await fetch('/api/events', {
-        signal,
+        signal: AbortSignal.any([signal, connection.signal]),
         credentials: 'same-origin',
         headers: authorization ? { Authorization: authorization } : {},
       });
       if (!response.ok || !response.body) throw new Error('Event connection failed.');
-      const reader = response.body.getReader();
+      onConnection(true);
+      const reader = response.body.getReader(),
+        decoder = new TextDecoder();
+      let buffer = '';
       while (!signal.aborted) {
         const part = await reader.read();
         if (part.done) break;
-        onChange();
+        heartbeat();
+        buffer += decoder.decode(part.value, { stream: true });
+        let end: number;
+        while ((end = buffer.indexOf('\n\n')) >= 0) {
+          const event = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          if (event.includes('event: change')) onChange();
+        }
       }
     } catch {
       if (signal.aborted) break;
+    } finally {
+      clearTimeout(watchdog);
+      window.removeEventListener('offline', offline);
+      connection.abort();
     }
-    await new Promise((r) => setTimeout(r, 2000));
+    if (signal.aborted) break;
+    onConnection(false);
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, 2000);
+      signal.addEventListener('abort', finish, { once: true });
+    });
   }
 }
+
 export const time = (date: number | null) =>
   date
     ? new Intl.DateTimeFormat('ja', {
@@ -82,7 +125,7 @@ export const stateLabel: Record<string, string> = {
   running: '実行中',
   waiting: '条件を待機中',
   paused: '一時停止',
-  error: '接続を確認',
+  error: 'エラー',
   pending: '未回答',
   processing: '保存中',
   resolved: '回答済み',

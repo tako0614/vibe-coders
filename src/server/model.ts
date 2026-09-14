@@ -20,6 +20,7 @@ export type ModelInput = {
   onText?: (text: string) => void;
 };
 export interface ModelAdapter {
+  isConfigured?(): boolean;
   call(input: ModelInput): Promise<MessageBody>;
 }
 export class ModelLoginRequired extends Error {

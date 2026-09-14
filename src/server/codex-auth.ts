@@ -58,7 +58,11 @@ export class CodexAuth {
   }
   // Only authenticated user routes may return these ephemeral sign-in details.
   userStatus() {
-    return { ...this.status(), login: this.active?.details || null };
+    return {
+      ...this.status(),
+      desktopOwner: this.desktop.status().owner,
+      login: this.active?.details || null,
+    };
   }
   private notify() {
     if (!this.closed) this.store.notify();
@@ -81,7 +85,7 @@ export class CodexAuth {
     try {
       await client.request(
         'initialize',
-        { clientInfo: { name: 'vibe_coders', version: '0.1.5' } },
+        { clientInfo: { name: 'vibe_coders', version: '0.1.6' } },
         10000,
       );
       client.send({ method: 'initialized', params: {} });

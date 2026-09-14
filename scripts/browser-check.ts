@@ -84,6 +84,7 @@ const screenshot = async (name: string) => {
 };
 const errors: string[] = [];
 await command('Runtime.enable', {}, sessionId);
+await command('Network.enable', {}, sessionId);
 await command('Page.enable', {}, sessionId);
 const old = ws.onmessage!;
 ws.onmessage = (event) => {
@@ -94,7 +95,11 @@ ws.onmessage = (event) => {
 };
 mkdirSync('/tmp/vibe-coder-browser', { recursive: true });
 try {
-  const navigation = await command('Page.navigate', { url: 'http://127.0.0.1:5173' }, sessionId);
+  const navigation = await command(
+    'Page.navigate',
+    { url: process.env.VIBE_CODER_TEST_ORIGIN || 'http://127.0.0.1:5173' },
+    sessionId,
+  );
   if (navigation.errorText) throw new Error(navigation.errorText);
   await command(
     'Emulation.setDeviceMetricsOverride',
@@ -105,7 +110,7 @@ try {
   await setValue('input[name="username"]', 'owner');
   await setValue('input[name="password"]', 'test-only-password-123');
   await evaluate(`document.querySelector('form').requestSubmit()`);
-  await until(`document.body.textContent.includes('今日、何を進めますか。')`);
+  await until(`!!document.querySelector('.welcome')`);
   await screenshot('desktop');
   const previousChats = await evaluate(
     `document.querySelectorAll('.conversation-list button').length`,
@@ -113,6 +118,8 @@ try {
   await clickText('新しい会話');
   await until(`document.querySelectorAll('.conversation-list button').length > ${previousChats}`);
   await clickText('ターミナル');
+  await until(`!!document.querySelector('.native-launch')`);
+  await evaluate(`document.querySelector('.native-launch').open=true`);
   if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     const authState = process.env.VIBE_CODER_TEST_AUTH_STATE;
     if (!authState)
@@ -125,12 +132,16 @@ try {
     );
     await screenshot('codex-login');
     await Bun.write(authState, JSON.stringify({ signedIn: true, finish: true }));
+    await until(`!!document.querySelector('.request-history')`);
+    await evaluate(`document.querySelector('.request-history').open=true`);
     await until(
       `document.querySelector('.request-result')?.textContent.includes('認証の完了を確認しました')`,
     );
     if (await evaluate(`document.body.textContent.includes('PRIVATE-CODE-234')`))
       throw new Error('Completed login code remained visible.');
     await clickText('ターミナル');
+    await until(`!!document.querySelector('.native-launch')`);
+    await evaluate(`document.querySelector('.native-launch').open=true`);
     await until(
       `document.querySelector('.terminal-footer')?.textContent.includes('completed') && document.querySelector('.run-output')?.textContent.includes('resumed after login')`,
     );
@@ -153,8 +164,13 @@ try {
   }
   await clickText('ターミナルを開く');
   await until(`!!document.querySelector('.terminal-surface .xterm-helper-textarea')`);
-  await clickText('手動で操作する');
   await until(`document.body.textContent.includes('あなたが操作中')`);
+  await Bun.sleep(600);
+  const terminalHeight = await evaluate(
+    `document.querySelector('.terminal-surface').getBoundingClientRect().height`,
+  );
+  if (terminalHeight < 300 || terminalHeight > 750)
+    throw new Error(`Terminal resize feedback loop: ${terminalHeight}`);
   await evaluate(`document.querySelector('.xterm-helper-textarea').focus()`);
   await command('Input.insertText', { text: 'printf "browser-terminal-ok\\n"' }, sessionId);
   await command(
@@ -187,18 +203,23 @@ try {
   await clickText('AGENT.md');
   await until(`!!document.querySelector('.file-content pre')`);
   await clickText('設定・接続');
-  await until(
-    `document.body.textContent.includes('追加したい機能') && !!document.querySelector('select[name="providerKind"]')`,
-  );
+  await until(`!!document.querySelector('.provider-picker')`);
+  await clickText('MCP');
+  await until(`document.querySelector('textarea[name="request"]')?.checkVisibility()`);
   if (await evaluate(`document.body.textContent.includes('普段のChromeに接続')`))
     throw new Error('Browser-specific configuration is still shown.');
   await screenshot('mcp-settings');
+  await clickText('AI接続');
+  await evaluate(
+    `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('APIキー')).click()`,
+  );
   await setValue('input[name="model"]', 'fixture-model');
   await evaluate(`document.querySelector('form.form-card').requestSubmit()`);
-  await clickText('APIキーを入力');
   await until(`!!document.querySelector('input[type="password"]')`);
   await setValue('input[type="password"]', 'browser-only-fixture-secret');
   await clickText('安全に保存');
+  await until(`!!document.querySelector('.request-history')`);
+  await evaluate(`document.querySelector('.request-history').open=true`);
   await until(
     `document.body.textContent.includes('保存済み') || document.body.textContent.includes('認証を確認しました')`,
   );
@@ -206,27 +227,38 @@ try {
     throw new Error('Secret appeared in visible content.');
   if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     await clickText('設定・接続');
+    await until(`!!document.querySelector('.provider-picker')`);
     await evaluate(
-      `(()=>{const el=document.querySelector('select[name="providerKind"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,'codex');el.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+      `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('Codex')).click()`,
     );
-    await until(
-      `document.body.textContent.includes('Codexのサブスクで、このエージェントを動かす') && document.querySelector('input[name="model"]')?.value === 'subscription-model'`,
-    );
+    await until(`document.querySelector('select[name="model"]')?.value === 'subscription-model'`);
     if (
       await evaluate(
-        `!!document.querySelector('form.form-card')?.querySelector('input[name="baseUrl"],input[name="keyRequired"]')`,
+        `!!document.querySelector('.provider-card input[name="baseUrl"],.provider-card input[name="keyRequired"]')`,
       )
     )
       throw new Error('Subscription provider still requires API setup.');
-    await clickText('Codexを親AIに設定');
-    await until(`document.querySelector('.status-chip')?.textContent.includes('設定済み')`);
+    await clickText('このモデルでチャットを始める');
+    await until(
+      `document.querySelector('.model-label')?.textContent.includes('subscription-model')`,
+    );
+    await clickText('設定・接続');
+    await until(
+      `document.querySelector('.provider-card .status-chip')?.textContent.includes('接続済み')`,
+    );
     await screenshot('codex-parent');
   }
   if (process.env.VIBE_CODER_TEST_DESKTOP === '1') {
     await clickText('デスクトップ');
-    await clickText('画面を開いて手動操作');
+    await until(`!!document.querySelector('.desktop-page')`);
+    if (
+      await evaluate(
+        `Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes('画面を開いて手動操作'))`,
+      )
+    )
+      await clickText('画面を開いて手動操作');
     await until(
-      `document.body.textContent.includes('接続済み') && !!document.querySelector('.desktop-surface canvas')`,
+      `document.querySelector('.desktop-surface canvas')?.width === 800 && document.querySelector('.desktop-surface canvas')?.height === 600`,
       15000,
     );
     const canvas = await evaluate(
@@ -239,6 +271,45 @@ try {
     await until(`!document.querySelector('.desktop-surface canvas')`);
   }
   await clickText('新しい会話');
+  await setValue('.composer textarea', '画面を切り替えても残る下書き');
+  await clickText('ファイル');
+  await until(`!!document.querySelector('.file-browser')`);
+  await clickText('チャット');
+  await until(
+    `document.querySelector('.composer textarea')?.value === '画面を切り替えても残る下書き'`,
+  );
+  await command(
+    'Network.emulateNetworkConditions',
+    { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 },
+    sessionId,
+  );
+  await until(`document.querySelector('.daemon-status')?.textContent.includes('再接続中')`);
+  await command(
+    'Network.emulateNetworkConditions',
+    { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 },
+    sessionId,
+  );
+  await until(`document.querySelector('.daemon-status')?.textContent.includes('サーバー接続済み')`);
+  await command(
+    'Network.emulateNetworkConditions',
+    { offline: false, latency: 800, downloadThroughput: -1, uploadThroughput: -1 },
+    sessionId,
+  );
+  await clickText('ファイル');
+  await until(
+    `Array.from(document.querySelectorAll('.file-list button')).some(b=>b.textContent==='AGENT.md')`,
+  );
+  await clickText('AGENT.md');
+  await clickText('atom.toml');
+  await until(
+    `document.querySelector('.file-info code')?.textContent==='atom.toml' && !document.querySelector('.file-content[aria-busy="true"]')`,
+  );
+  await command(
+    'Network.emulateNetworkConditions',
+    { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 },
+    sessionId,
+  );
+  await clickText('チャット');
   await command(
     'Emulation.setDeviceMetricsOverride',
     { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
@@ -258,7 +329,8 @@ try {
       checks: [
         'login',
         'chat creation',
-        'terminal creation and handoff/input',
+        'terminal creation with immediate human input',
+        'draft retention, reconnect status and rapid file selection',
         'schedule save',
         'memory save',
         'file read',

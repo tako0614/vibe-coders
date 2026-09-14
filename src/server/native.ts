@@ -158,7 +158,7 @@ export class NativeService {
     try {
       signal.throwIfAborted();
       await process.request('initialize', {
-        clientInfo: { name: 'vibe_coders', version: '0.1.5' },
+        clientInfo: { name: 'vibe_coders', version: '0.1.6' },
       });
       process.send({ method: 'initialized', params: {} });
       const thread = await process.request(input.resumeId ? 'thread/resume' : 'thread/start', {

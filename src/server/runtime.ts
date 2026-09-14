@@ -64,6 +64,15 @@ export function createRuntime(options: {
   const apiModel = new ChatModel(config, vault),
     subscriptionModel = new CodexModel(config, codex, options.codex?.fetch);
   const model: ModelAdapter = options.model || {
+    isConfigured: () => {
+      const provider = config.read().provider;
+      return (
+        !!provider &&
+        (provider.kind === 'codex' ||
+          !provider.keyRequired ||
+          !!vault.get('provider:main', provider.revision))
+      );
+    },
     call: (input) =>
       (config.read().provider?.kind === 'codex' ? subscriptionModel : apiModel).call(input),
   };
@@ -142,6 +151,8 @@ export function createRuntime(options: {
         void mcp.connect(c).catch(() => {});
   }
   store.notify();
+  if (config.read().provider?.kind === 'codex' && !store.stopped)
+    void codex.refresh().catch(() => {});
   return {
     home,
     directory,
