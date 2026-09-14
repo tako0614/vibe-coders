@@ -7,7 +7,7 @@
 Bun 1.3.14以上を先にインストールしてください。
 
 ```sh
-npm install -g vibe-coders@0.1.4
+npm install -g vibe-coders@0.1.5
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init

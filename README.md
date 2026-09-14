@@ -8,7 +8,7 @@
 
 Bun 1.3.14以上が必要です。初期の検証対象はLinuxです。
 
-配布版は `npm install -g vibe-coders@0.1.4` で導入できます。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
+配布版は `npm install -g vibe-coders@0.1.5` で導入できます。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
 
 ```sh
 git clone https://github.com/tako0614/vibe-coders.git
@@ -71,6 +71,8 @@ XDGの設定を使用します。検証用には `VIBE_CODER_CONFIG_DIR` と `VI
 Vibe Codersへの改名後も、保存先と `VIBE_CODER_*` 環境変数は共通です。同じHomeから起動すると、旧 `@tako0614/vibe-coder` の設定・会話・記憶を引き継ぎます。
 
 既定listenはloopback。外部公開するときはHTTPSを終端し、端末設定の `web.origin` を外部の正確なOriginに設定します。管理用の認証情報は生成アプリのプレビューへ渡さず、別Originで配信してください。
+
+同じLANの別端末から開く手順は [LANからのアクセス](docs/distribution.md#lanからのアクセス) にあります。
 
 ## CLI
 

@@ -16,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
-import { api, stateLabel, time, type Snapshot, type Status } from './api';
+import { api, operationId, stateLabel, time, type Snapshot, type Status } from './api';
 import type { Action, View } from './App';
 import type { HumanRequest } from '../server/db/schema';
 import { CodexLogin } from './CodexLogin';
@@ -84,7 +84,7 @@ export function RequestCard({ request: r, action }: { request: HumanRequest; act
                   await api(
                     `/human/${r.id}/${r.spec.kind === 'secret' ? 'secret' : 'answer'}`,
                     'POST',
-                    { revision: r.revision, operationId: crypto.randomUUID(), values },
+                    { revision: r.revision, operationId: operationId(), values },
                   );
                   form.reset();
                 });
@@ -218,7 +218,7 @@ export function Chat({
       await api(`/conversations/${s.conversation.id}/messages`, 'POST', {
         text,
         images,
-        operationId: crypto.randomUUID(),
+        operationId: operationId(),
       });
       setText('');
       setImages([]);

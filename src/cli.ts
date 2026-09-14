@@ -289,7 +289,7 @@ async function main() {
         void cleanup!().finally(() => process.exit(0));
       });
     console.log(
-      `vibe-coders: http://${web.hostname}:${web.port}\nHome: ${home}\nWebUI username: ${web.username}`,
+      `vibe-coders: ${process.env.VIBE_CODER_ORIGIN || web.origin || `http://${web.hostname}:${web.port}`}\nHome: ${home}\nWebUI username: ${web.username}`,
     );
   } catch (e) {
     if (cleanup) await cleanup();

@@ -38,7 +38,8 @@
 
 - 型検査、Bunの46テスト、Reactビルド、Honoによる認証付き画面配信。
 - CLI設定・init・起動・終了・二重起動拒否。配布用bundleを別ディレクトリへ移して、元のnode_modulesなしで起動・migration・認証・画面配信。npm tarballからのインストール、実行コマンド、Home初期化。
-- `vibe-coders@0.1.4` をnpmへ公開。公開tarballの内容一致と、公開registryからのインストール・実行コマンド・Home初期化を確認。
+- `vibe-coders@0.1.5` をnpmへ公開。公開tarballの内容一致と、公開registryからのインストール・実行コマンド・Home初期化を確認。
+- HTTPのLANアドレスで本番WebUIを開き、`crypto.randomUUID` が利用できない環境で入力回答が送れないことを0.1.4で再現。0.1.5ではチャット・入力回答・MCP導入依頼がサーバーへ届くことを実Chromeで確認。
 - 改名時の移行試験では、旧 `@tako0614/vibe-coder@0.1.1` で保存したログイン設定・会話・Atomの記憶を `vibe-coders@0.1.2` から読み書きできることを確認。
 - 決めた手順を返すモデルfixtureで、MCP導入依頼 → 環境確認 → shellによるローカルMCP実行ファイルの導入 → 登録 → discovery → 次の推論での実ツール呼び出しを同じ会話で確認。CLI未導入、設定版変更、初期化中のデスクトップ引き継ぎも回帰試験。
 - Codex認証のJSON-RPC fixtureで、コード／ブラウザ方式、認証URLの制約、秘密の履歴非混入、API認証・CSRF、成功時の元の作業の一回の開始、失敗・取消・全停止・失われた認証カードの復旧を確認。

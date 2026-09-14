@@ -1,16 +1,16 @@
 # 配布・運用
 
-2026-09-14。**Vibe Coders** の0.1.4をnpmへ公開しました。親エージェントをCodexのサブスク枠で動かす接続を追加しています。外部サーバーへの配備は、配備先が未指定のため未実施です。
+2026-09-14。**Vibe Coders** の0.1.5をnpmへ公開しました。HTTPのLAN接続で操作を送信できない問題を修正しています。0.1.4で追加した、親エージェントをCodexのサブスク枠で動かす接続も含みます。外部サーバーへの配備は、配備先が未指定のため未実施です。
 
 ```sh
-npm install -g vibe-coders@0.1.4
+npm install -g vibe-coders@0.1.5
 ```
 
 ソースは公開GitHubリポジトリ [tako0614/vibe-coders](https://github.com/tako0614/vibe-coders) で管理します。
 
 旧 `@tako0614/vibe-coder@0.1.1` からの改名です。同じHomeで起動すると、従来の設定・会話・Atomの記憶を使えます。保存先の `vibe-coder` ディレクトリと `VIBE_CODER_*` 環境変数は引き続き使用します。
 
-公開registryから0.1.4を取得し、配布ファイルのSHA-512一致、npmからのインストール、`vibe-coders` コマンドとHome初期化を確認しました。46テスト、Reactビルド、配布bundleの別ディレクトリ起動も通過しています。旧0.1.1で保存したログイン設定・会話・Atomの記憶を0.1.2から読み書きする移行試験は、改名時に確認済みです。
+公開registryから0.1.5を取得し、配布ファイルのSHA-512一致、npmからのインストール、`vibe-coders` コマンドとHome初期化を確認しました。46テスト、Reactビルド、配布bundleの別ディレクトリ起動も通過しています。旧0.1.1で保存したログイン設定・会話・Atomの記憶を0.1.2から読み書きする移行試験は、改名時に確認済みです。
 
 ## npm用配布物
 
@@ -26,7 +26,7 @@ npm pack
 ローカルtarballの導入後は以下の手順です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.1.4.tgz
+npm install -g /path/to/vibe-coders-0.1.5.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -34,6 +34,18 @@ vibe-coders
 ```
 
 ライブラリのライセンス文は `THIRD_PARTY_LICENSES.txt` に同梱します。Atom Memoryの実装はそのライブラリをbundleして配布します。元のリポジトリのnode_modulesを読み込む構成ではありません。
+
+## LANからのアクセス
+
+同じLANの別端末から開く場合、待ち受けとブラウザから使うURLを両方指定します。次のIPは起動するPCのLANアドレスに置き換えてください。
+
+```sh
+VIBE_CODER_LISTEN=0.0.0.0 VIBE_CODER_ORIGIN=http://192.168.1.10:3100 vibe-coders
+```
+
+常用する場合は端末設定の `web.hostname` に `0.0.0.0`、`web.origin` に実際のURLを保存します。MCP OAuthのcallbackにもそのURLが使われます。ログインには `vibe-coders setup` で設定したユーザー名とパスワードを使います。`web.origin` は一つのURLを許可する設定なので、別端末もそのURLから開いてください。
+
+0.1.5ではHTTPのLAN接続でもチャット・入力回答・MCP導入依頼に必要な操作IDを生成できます。
 
 ## コンテナ
 

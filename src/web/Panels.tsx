@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import type { AtomView } from 'atom-memory';
-import { api, time, stateLabel, type Snapshot, type Status } from './api';
+import { api, operationId, time, stateLabel, type Snapshot, type Status } from './api';
 import type { Action, View } from './App';
 import { CodexLogin } from './CodexLogin';
 
@@ -827,7 +827,7 @@ export function SettingsPanel({
               await api('/mcp/setup', 'POST', {
                 conversationId: snapshot.conversation.id,
                 request,
-                operationId: crypto.randomUUID(),
+                operationId: operationId(),
               });
               form.reset();
               onView('chat');
