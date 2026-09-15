@@ -112,6 +112,11 @@ test('parent setup request inspects the host, installs a local MCP executable, d
     );
     await eventually(() => r.store.snapshot(r.id).requests.length === 1, 10000);
     const card = r.store.snapshot(r.id).requests[0];
+    await eventually(() =>
+      r.store
+        .history(r.id)
+        .some((m) => m.body.role === 'tool' && m.body.content.includes('sha256')),
+    );
     expect(
       r.store
         .history(r.id)
@@ -129,7 +134,7 @@ test('parent setup request inspects the host, installs a local MCP executable, d
         .snapshot(r.id)
         .runs.some((run) => r.runs.get(run.id).output.includes('installed and invoked')),
     ).toBe(true);
-    expect(r.mcp.status()[0]).toMatchObject({ state: 'connected', tools: 3 });
+    expect(r.mcp.status()[0]).toMatchObject({ state: 'connected', tools: 4 });
   } finally {
     await r.dispose();
   }

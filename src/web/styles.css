@@ -2203,3 +2203,112 @@ kbd {
     flex-wrap: wrap;
   }
 }
+.draft-notice {
+  padding: 10px 18px;
+  color: #8b442e;
+  background: #fff3e7;
+  font-size: 12px;
+}
+.mcp-install > form {
+  display: grid;
+  gap: 14px;
+}
+.mcp-install summary {
+  cursor: pointer;
+}
+.request-card select[multiple] {
+  min-height: 100px;
+}
+.changes-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 28%) 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+.change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.change-list button {
+  justify-content: flex-start;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.change-list button.selected {
+  background: #e8edf9;
+  border-color: #7892cf;
+}
+.change-list button > span {
+  font-family: monospace;
+  font-weight: 700;
+  width: 16px;
+}
+.change-detail {
+  min-width: 0;
+  border: 1px solid #d8dee8;
+  background: white;
+  border-radius: 8px;
+  padding: 14px;
+}
+.change-detail strong,
+.file-editor strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.file-diff {
+  overflow: auto;
+  max-height: 65vh;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.file-diff .added {
+  background: #e4f5eb;
+  color: #175b36;
+}
+.file-diff .removed {
+  background: #fce8e7;
+  color: #8e2c2c;
+}
+.file-diff > div {
+  padding: 0 8px;
+  min-width: max-content;
+}
+.file-editor {
+  padding: 14px;
+}
+.file-editor textarea {
+  width: 100%;
+  min-height: 50vh;
+  resize: vertical;
+  font:
+    13px/1.7 Consolas,
+    monospace;
+  white-space: pre;
+  overflow-wrap: normal;
+  margin: 12px 0;
+  tab-size: 2;
+}
+.restore-confirm {
+  margin: 14px 0;
+  padding: 12px;
+  background: #fff3e7;
+  font-size: 12px;
+}
+.restore-confirm button {
+  margin-right: 8px;
+}
+.skipped-files {
+  font-size: 12px;
+  margin-top: 12px;
+}
+@media (max-width: 700px) {
+  .changes-layout {
+    grid-template-columns: 1fr;
+  }
+  .changes-page .heading-row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}

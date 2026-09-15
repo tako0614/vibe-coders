@@ -138,4 +138,5 @@ export const stateLabel: Record<string, string> = {
   connected: '接続済み',
   disconnected: '未接続',
   connecting: '接続中',
+  awaiting_auth: '認証待ち',
 };

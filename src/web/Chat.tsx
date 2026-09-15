@@ -1,3 +1,4 @@
+import { useComposerDraft } from './drafts';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
@@ -81,7 +82,12 @@ export function RequestCard({ request: r, action }: { request: HumanRequest; act
                 const form = e.currentTarget,
                   data = new FormData(form);
                 const values = Object.fromEntries(
-                  r.spec.fields.map((f) => [f.name, String(data.get(f.name) || '')]),
+                  r.spec.fields.map((f) => [
+                    f.name,
+                    f.type === 'multiChoice'
+                      ? JSON.stringify(data.getAll(f.name))
+                      : String(data.get(f.name) || ''),
+                  ]),
                 );
                 setBusy(true);
                 await action(async () => {
@@ -98,9 +104,27 @@ export function RequestCard({ request: r, action }: { request: HumanRequest; act
               {r.spec.fields.map((f) => (
                 <label key={f.name}>
                   {f.label}
-                  {f.type === 'choice' || f.type === 'boolean' ? (
-                    <select name={f.name} required={f.required} defaultValue="">
-                      <option value="" disabled>
+                  {f.type === 'multiChoice' ? (
+                    <select
+                      name={f.name}
+                      multiple
+                      required={f.required && (f.minItems ?? 0) > 0}
+                      defaultValue={Array.isArray(f.default) ? f.default : []}
+                      aria-label={f.label}
+                    >
+                      {f.options?.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : f.type === 'choice' || f.type === 'boolean' ? (
+                    <select
+                      name={f.name}
+                      required={f.required}
+                      defaultValue={String(f.default ?? '')}
+                    >
+                      <option value="" disabled={f.required}>
                         選択してください
                       </option>
                       {(f.type === 'boolean'
@@ -118,6 +142,7 @@ export function RequestCard({ request: r, action }: { request: HumanRequest; act
                   ) : (
                     <input
                       name={f.name}
+                      defaultValue={f.type === 'secret' ? undefined : String(f.default ?? '')}
                       type={
                         f.type === 'secret'
                           ? 'password'
@@ -135,6 +160,7 @@ export function RequestCard({ request: r, action }: { request: HumanRequest; act
                       spellCheck={f.type !== 'secret'}
                     />
                   )}
+                  {f.description && <small className="muted">{f.description}</small>}
                 </label>
               ))}
               {r.spec.kind === 'secret' && (
@@ -206,9 +232,23 @@ export function Chat({
   onView: (view: View) => void;
   drafts: Map<string, ComposerDraft>;
 }) {
-  const [text, setText] = useState(drafts.get(s.conversation.id)?.text || ''),
-    [images, setImages] = useState<ImagePart[]>(drafts.get(s.conversation.id)?.images || []),
-    [busy, setBusy] = useState(false);
+  const persisted = useComposerDraft(
+    `${status.config.username}:${status.home}:${s.conversation.id}`,
+    s.conversation.id,
+    drafts,
+  );
+  const { text, images } = persisted.draft;
+  const setText = (value: string | ((text: string) => string)) =>
+    persisted.update((current) => ({
+      ...current,
+      text: typeof value === 'function' ? value(current.text) : value,
+    }));
+  const setImages = (value: ImagePart[] | ((images: ImagePart[]) => ImagePart[])) =>
+    persisted.update((current) => ({
+      ...current,
+      images: typeof value === 'function' ? value(current.images) : value,
+    }));
+  const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null),
     area = useRef<HTMLTextAreaElement>(null),
     attachment = useRef<HTMLInputElement>(null);
@@ -227,9 +267,6 @@ export function Chat({
       : undefined;
   const pending = s.requests.filter((r) => r.state === 'pending' || r.state === 'processing');
   useEffect(() => {
-    drafts.set(s.conversation.id, { text, images });
-  }, [text, images, drafts, s.conversation.id]);
-  useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
     else setShowLatest(true);
   }, [s.messages.length, s.draft, pending.length]);
@@ -243,9 +280,7 @@ export function Chat({
         images,
         operationId: operationId(),
       });
-      setText('');
-      setImages([]);
-      drafts.delete(s.conversation.id);
+      await persisted.clear();
       follow.current = true;
       if (!status.providerReady) onView('settings');
     });
@@ -254,6 +289,16 @@ export function Chat({
   };
   return (
     <main className="chat-layout">
+      {s.context && (
+        <div className="draft-notice">
+          以前の会話を要約して継続しています。元の履歴は保存されています。
+        </div>
+      )}
+      {persisted.error && (
+        <div className="draft-notice" role="status">
+          {persisted.error}
+        </div>
+      )}
       <div
         className="chat-scroll"
         ref={scroll}

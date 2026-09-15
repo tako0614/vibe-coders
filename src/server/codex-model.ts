@@ -1,3 +1,4 @@
+import { ModelContextExceeded, isContextLimit } from './model';
 import OpenAI from 'openai';
 import type { ResponseInputItem, ResponseOutputItem } from 'openai/resources/responses/responses';
 import type { MessageBody } from '../shared/contracts';
@@ -118,11 +119,14 @@ export class CodexModel implements ModelAdapter {
           if (event.type === 'response.output_item.done')
             completedItems.set(event.output_index, event.item);
           if (event.type === 'response.completed') {
+            if (isContextLimit(event.response.error?.code)) throw new ModelContextExceeded();
             if (event.response.status !== 'completed') throw new Error('MODEL_RESPONSE_INCOMPLETE');
             output = event.response.output?.length
               ? event.response.output
               : [...completedItems].sort(([a], [b]) => a - b).map(([, item]) => item);
           }
+          if (event.type === 'response.failed' && isContextLimit(event.response.error?.code))
+            throw new ModelContextExceeded();
           if (
             event.type === 'response.failed' ||
             event.type === 'response.incomplete' ||
@@ -185,6 +189,9 @@ export class CodexModel implements ModelAdapter {
           }
           continue;
         }
+        if (error instanceof ModelContextExceeded) throw error;
+        if (error instanceof OpenAI.APIError && isContextLimit(error.code))
+          throw new ModelContextExceeded();
         // Never persist upstream bodies, headers or account details in errors.
         if (error instanceof OpenAI.APIError && error.status === 401)
           return this.login(input, true);

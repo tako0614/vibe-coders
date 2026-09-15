@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { WorkspaceChanges } from './changes';
 import { eq } from 'drizzle-orm';
 import { openDatabase } from './db';
 import { schedules } from './db/schema';
@@ -11,6 +12,7 @@ import { Scheduler } from './scheduler';
 import { Files } from './files';
 import { ChatModel, type ModelAdapter } from './model';
 import { McpService } from './mcp';
+import { McpInstaller } from './mcp-install';
 import { Desktop } from './desktop';
 import { Agent } from './agent';
 import { verifyProvider } from './credentials';
@@ -36,16 +38,35 @@ export function createRuntime(options: {
     human = new HumanService(store, config, vault),
     runs = new RunService(store, home, vault);
   const memory = new MemoryService(join(directory, 'memory.sqlite')),
+    changes = new WorkspaceChanges(home, directory),
     files = new Files(home),
     scheduler = new Scheduler(store, runs);
   const mcp = new McpService(store, config, vault, runs, human, home),
     desktop = new Desktop(store, config, vault, { home, directory });
-  human.verifyCredential = async (target, revision) =>
-    target === 'provider:main'
+  const mcpInstaller = new McpInstaller(mcp);
+  let workspaceReady = false;
+  void changes.ready
+    .then(() => {
+      workspaceReady = true;
+    })
+    .catch(() => {});
+  human.verifyCredential = async (target, revision, conversationId) => {
+    if (target.startsWith('mcp:') || target.startsWith('oauth-client:')) {
+      const name = target.slice(target.indexOf(':') + 1);
+      if (config.targetVersion(target) !== revision)
+        return { status: 'unverified', message: '接続設定が変更されました。' };
+      mcp.connectRun(conversationId, name);
+      return {
+        status: 'unverified',
+        message: '認証情報を保存し、接続確認を開始しました。設定のMCP接続で結果を確認できます。',
+      };
+    }
+    return target === 'provider:main'
       ? verifyProvider(config, vault, revision)
       : target === 'desktop'
         ? desktop.verifyCredential(revision)
         : { status: 'unverified', message: '資格情報を保存しました。接続操作で確認できます。' };
+  };
   const codex = new CodexAuth(
     store,
     human,
@@ -91,6 +112,8 @@ export function createRuntime(options: {
     native,
     codex,
   );
+  agent.beforeWork = () => changes.ready;
+  native.beforeWork = () => changes.ready;
   runs.recover();
   human.recover();
   codex.recover();
@@ -140,7 +163,7 @@ export function createRuntime(options: {
       try {
         human.recover();
         syncRoutines();
-        scheduler.tick();
+        if (workspaceReady) scheduler.tick();
         if (Date.now() - store.get('lastPrune', { at: 0 }).at >= 3600000) prune(store, config);
       } catch {
         /* Invalid edited configuration is exposed by doctor/model input; keep forms alive. */
@@ -164,8 +187,10 @@ export function createRuntime(options: {
     runs,
     memory,
     files,
+    changes,
     scheduler,
     mcp,
+    mcpInstaller,
     desktop,
     agent,
     native,
@@ -173,6 +198,7 @@ export function createRuntime(options: {
     model,
     async close() {
       clearInterval(timer);
+      await changes.ready.catch(() => {});
       await codex.close();
       human.shutdown();
       await agent.close();

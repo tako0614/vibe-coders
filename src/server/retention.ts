@@ -1,4 +1,4 @@
-import { and, eq, lt, inArray, max } from 'drizzle-orm';
+import { and, eq, lt, inArray, max, like, or } from 'drizzle-orm';
 import { conversations, messages, runs, requests, events, schedules, state } from './db/schema';
 import { Store } from './store';
 import { Config } from './config';
@@ -80,6 +80,37 @@ export function prune(store: Store, config: Config, now = Date.now()) {
             .run();
           counts.images += images.length;
         }
+    }
+    for (const row of store.db
+      .select()
+      .from(state)
+      .where(
+        or(
+          like(state.key, 'context:%'),
+          like(state.key, 'native-input:%'),
+          like(state.key, 'mcp-install:%'),
+        ),
+      )
+      .all()) {
+      const exists = row.key.startsWith('context:')
+        ? store.db
+            .select({ id: conversations.id })
+            .from(conversations)
+            .where(eq(conversations.id, row.key.slice(8)))
+            .get()
+        : store.db
+            .select({ id: runs.id })
+            .from(runs)
+            .where(
+              eq(
+                runs.id,
+                row.key.startsWith('native-input:')
+                  ? row.key.split(':')[1]
+                  : (row.value as { runId: string }).runId,
+              ),
+            )
+            .get();
+      if (!exists) store.db.delete(state).where(eq(state.key, row.key)).run();
     }
     store.db
       .insert(state)

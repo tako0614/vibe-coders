@@ -157,6 +157,10 @@ export class Config {
     if (id === 'provider:main') return c.provider?.revision;
     if (id === 'desktop') return c.desktop?.revision;
     if (id === 'search') return c.search?.revision;
+    if (id.startsWith('oauth-client:'))
+      return c.mcp.find(
+        (m) => m.name === id.slice(13) && m.oauth && m.oauthClientId && m.oauthClientSecret,
+      )?.revision;
     if (id.startsWith('mcp:')) return c.mcp.find((m) => m.name === id.slice(4))?.revision;
     return undefined;
   }

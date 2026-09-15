@@ -23,6 +23,15 @@ export interface ModelAdapter {
   isConfigured?(): boolean;
   call(input: ModelInput): Promise<MessageBody>;
 }
+export class ModelContextExceeded extends Error {
+  constructor() {
+    super(
+      '会話がモデルの入力上限を超えました。入力やツールの読取範囲を小さくして再試行してください。元の履歴は保持されています。',
+    );
+  }
+}
+export const isContextLimit = (code: unknown) =>
+  ['context_length_exceeded', 'context_window_exceeded'].includes(String(code));
 export class ModelLoginRequired extends Error {
   constructor(readonly requestId: string) {
     super('CODEX_LOGIN_REQUIRED');
@@ -76,10 +85,13 @@ export class ChatModel implements ModelAdapter {
       type: 'function',
       function: { name: t.name, description: t.description, parameters: t.parameters },
     }));
-    const stream = await client.chat.completions.create(
-      { model: p.model, messages, tools, stream: true },
-      { signal: input.signal },
-    );
+    const stream = await client.chat.completions
+      .create({ model: p.model, messages, tools, stream: true }, { signal: input.signal })
+      .catch((error) => {
+        if (error instanceof OpenAI.APIError && isContextLimit(error.code))
+          throw new ModelContextExceeded();
+        throw error;
+      });
     let content = '';
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
     let finished = false;

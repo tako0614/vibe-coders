@@ -4,11 +4,13 @@ import { humanSpecSchema, type HumanSpec } from '../shared/contracts';
 import { requests } from './db/schema';
 import { Store } from './store';
 import { Config, Vault } from './config';
+import { RE2JS } from 're2js';
 
 export class HumanService {
   verifyCredential?: (
     target: string,
     revision: number,
+    conversationId: string,
   ) => Promise<{ status: string; message: string }>;
   private verifying = new Set<string>();
   private closing = false;
@@ -91,7 +93,11 @@ export class HumanService {
       return;
     this.verifying.add(id);
     try {
-      const check = await this.verifyCredential(r.spec.targetId!, r.targetVersion);
+      const check = await this.verifyCredential(
+        r.spec.targetId!,
+        r.targetVersion,
+        r.conversationId,
+      );
       if (this.closing) return;
       this.config.lock(() => {
         const current = this.get(id);
@@ -203,6 +209,26 @@ export class HumanService {
       if (value && field.type === 'choice' && !field.options?.some((o) => o.value === value))
         throw new Error('Invalid choice.');
       if (!value) continue;
+      if (field.type === 'multiChoice') {
+        let selected: unknown;
+        try {
+          selected = JSON.parse(value);
+        } catch {
+          throw new Error('Invalid choices.');
+        }
+        if (
+          !Array.isArray(selected) ||
+          selected.some(
+            (v) => typeof v !== 'string' || !field.options?.some((o) => o.value === v),
+          ) ||
+          new Set(selected).size !== selected.length ||
+          selected.length < (field.minItems ?? 0) ||
+          selected.length > (field.maxItems ?? 20)
+        )
+          throw new Error('選択数または選択肢が正しくありません。');
+      }
+      if (field.pattern && !RE2JS.compile(field.pattern).test(value))
+        throw new Error(`${field.label}の形式が正しくありません。`);
       if (field.type === 'boolean' && !['true', 'false'].includes(value))
         throw new Error('Invalid boolean.');
       if (field.type === 'number' || field.type === 'integer') {

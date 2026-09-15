@@ -40,4 +40,37 @@ server.registerTool('url_input', { inputSchema: {} }, async () => {
   });
   return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
 });
+server.registerTool('selection_input', { inputSchema: {} }, async () => {
+  const result = await server.server.elicitInput({
+    message: 'Choose features',
+    requestedSchema: {
+      type: 'object',
+      properties: {
+        plan: {
+          type: 'string',
+          oneOf: [
+            { const: 'basic', title: 'Basic plan' },
+            { const: 'pro', title: 'Pro plan' },
+          ],
+          default: 'basic',
+        },
+        features: {
+          type: 'array',
+          items: {
+            anyOf: [
+              { const: 'files', title: 'Files' },
+              { const: 'browser', title: 'Browser' },
+            ],
+          },
+          minItems: 1,
+          maxItems: 2,
+          default: ['files'],
+        },
+        slug: { type: 'string', minLength: 2, maxLength: 20, default: 'project' },
+      },
+      required: ['plan', 'features', 'slug'],
+    },
+  });
+  return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+});
 await server.connect(new StdioServerTransport());

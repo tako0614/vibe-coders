@@ -29,6 +29,8 @@ export class McpOAuth implements OAuthClientProvider {
     return `oauth:${this.connection.name}`;
   }
   read(): Session {
+    if (this.config.targetVersion(`mcp:${this.connection.name}`) !== this.connection.revision)
+      throw new Error('OAuth connection changed.');
     const value = this.vault.get(this.target, this.connection.revision);
     return value ? JSON.parse(value) : {};
   }
@@ -54,7 +56,8 @@ export class McpOAuth implements OAuthClientProvider {
       redirect_uris: [this.redirectUrl],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
-      token_endpoint_auth_method: 'none',
+      token_endpoint_auth_method: this.connection.oauthClientSecret ? 'client_secret_post' : 'none',
+      ...(this.connection.oauthScope ? { scope: this.connection.oauthScope } : {}),
     };
   }
   state() {
@@ -63,7 +66,20 @@ export class McpOAuth implements OAuthClientProvider {
     return state;
   }
   clientInformation() {
-    return this.read().client;
+    const session = this.read();
+    if (this.connection.oauthClientId) {
+      const secret = this.vault.get(
+        `oauth-client:${this.connection.name}`,
+        this.connection.revision,
+      );
+      if (this.connection.oauthClientSecret && !secret)
+        throw new Error('OAuthクライアントシークレットを専用入力から保存してください。');
+      return {
+        client_id: this.connection.oauthClientId,
+        ...(secret ? { client_secret: secret } : {}),
+      };
+    }
+    return session.client;
   }
   saveClientInformation(client: OAuthClientInformationMixed) {
     this.save({ client });

@@ -1,3 +1,5 @@
+import { McpInstall } from './McpInstall';
+import { ChangesPanel, FileEditor } from './ChangesPanel';
 import { useEffect, useRef, useState } from 'react';
 import { TerminalView } from './TerminalView';
 import {
@@ -246,6 +248,7 @@ function RunOutput({
   onStart: (id: string) => void;
 }) {
   const [output, setOutput] = useState('');
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const current = useRef(run);
   current.current = run;
@@ -287,7 +290,11 @@ function RunOutput({
       {run.kind === 'native' && (
         <div className="run-details">
           <p>
-            実行中は出力の確認と停止ができます。追加指示は終了後に同じセッションの次ターンとして送ります。
+            {run.result?.inputMode === 'interrupt'
+              ? '追加指示を送ると現在の処理を中断し、同じセッションで指示を反映します。'
+              : run.result?.inputMode === 'steer'
+                ? '実行中の作業に追加指示を送れます。'
+                : '出力と実行状態を表示しています。'}
           </p>
           {typeof resumeId === 'string' && (
             <p>
@@ -298,6 +305,35 @@ function RunOutput({
             <p>
               ターンID <code>{run.result.turnId}</code>
             </p>
+          )}
+          {run.state === 'running' && !!run.result?.inputMode && (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (sending) return;
+                const form = event.currentTarget;
+                const prompt = String(new FormData(form).get('prompt'));
+                setSending(true);
+                void action(async () => {
+                  const accepted = await api<{ state: string }>(`/native/${run.id}/input`, 'POST', {
+                    prompt,
+                    expectedTurnId: run.result!.turnId,
+                    operationId: operationId(),
+                  });
+                  if (accepted.state !== 'accepted')
+                    throw new Error('追加指示の到達を確認できません。出力を確認してください。');
+                  if (String(new FormData(form).get('prompt')) === prompt) form.reset();
+                }).finally(() => setSending(false));
+              }}
+            >
+              <label>
+                実行中の作業への追加指示
+                <textarea name="prompt" required maxLength={32000} />
+              </label>
+              <button className="primary" disabled={sending}>
+                {sending ? '送信中…' : '追加指示を送る'}
+              </button>
+            </form>
           )}
           {canResume && (
             <form
@@ -653,6 +689,7 @@ export function SettingsPanel({
             </small>
           )}
         </form>
+        <McpInstall snapshot={snapshot} action={action} onRun={() => onView('terminal')} />
         {status.mcp.length ? (
           status.mcp.map((m) => (
             <div className="connection-row" key={m.name}>
@@ -684,7 +721,16 @@ export function SettingsPanel({
                     切断
                   </button>
                 )}
-                <button onClick={() => void key(`mcp:${m.name}`)}>認証</button>
+                {status.config.mcp.find((c) => c.name === m.name)?.oauthClientSecret && (
+                  <button onClick={() => void key(`oauth-client:${m.name}`)}>
+                    クライアント認証
+                  </button>
+                )}
+                {status.config.mcp.find((c) => c.name === m.name)?.oauth ? (
+                  <button onClick={() => onView('requests')}>認証の進行を確認</button>
+                ) : (
+                  <button onClick={() => void key(`mcp:${m.name}`)}>認証</button>
+                )}
                 <button
                   className="icon-button danger"
                   aria-label={`${m.name}を削除`}
@@ -714,6 +760,13 @@ export function SettingsPanel({
                   args: JSON.parse(String(f.get('args') || '[]')),
                   enabled: true,
                   oauth: f.get('oauth') === 'on',
+                  ...(f.get('oauthClientId')
+                    ? {
+                        oauthClientId: String(f.get('oauthClientId')),
+                        oauthClientSecret: f.get('oauthClientSecret') === 'on',
+                      }
+                    : {}),
+                  ...(f.get('oauthScope') ? { oauthScope: String(f.get('oauthScope')) } : {}),
                   ...(String(f.get('credentialEnv') || '').trim()
                     ? { credentialEnv: String(f.get('credentialEnv')).trim() }
                     : {}),
@@ -724,6 +777,9 @@ export function SettingsPanel({
                 };
                 await api('/config/mcp', 'PUT', { revision: status.config.revision, connection });
                 setMcpForm(false);
+                await api(`/config/mcp/${connection.name}/connect`, 'POST', {
+                  conversationId: snapshot.conversation.id,
+                });
               });
             }}
           >
@@ -772,11 +828,30 @@ export function SettingsPanel({
               <input type="checkbox" name="oauth" />
               HTTP接続でOAuth認証を使う
             </label>
+            <details>
+              <summary>事前登録したOAuthクライアント（任意）</summary>
+              <label>
+                クライアントID
+                <input name="oauthClientId" />
+              </label>
+              <label>
+                スコープ
+                <input name="oauthScope" placeholder="スペース区切り" />
+              </label>
+              <label className="checkbox">
+                <input name="oauthClientSecret" type="checkbox" />
+                クライアントシークレットを使う
+              </label>
+              <small className="muted">
+                シークレットは登録後の「クライアント認証」から保存してください。リダイレクト先には、この画面のURLの
+                /api/mcp/oauth/callback を登録します。
+              </small>
+            </details>
             <small className="muted">
               接続先が同じブラウザ・画面を扱う場合に選択してください。手動操作中のAIアクセスを連動させます。
             </small>
             <div className="form-actions">
-              <button className="primary">接続を登録</button>
+              <button className="primary">登録して接続</button>
               <button type="button" onClick={() => setMcpForm(false)}>
                 閉じる
               </button>
@@ -1112,6 +1187,8 @@ type FilePreview = {
   sha256: string;
 };
 export function FilesPanel({ action }: { action: Action }) {
+  const [changes, setChanges] = useState(false),
+    [editing, setEditing] = useState(false);
   const [path, setPath] = useState('.'),
     [refresh, setRefresh] = useState(0);
   const [entries, setEntries] = useState<{ name: string; kind: string }[]>([]);
@@ -1128,6 +1205,7 @@ export function FilesPanel({ action }: { action: Action }) {
     setLoading(true);
     setFile(undefined);
     setSelected('');
+    setEditing(false);
     setError('');
     setEntries([]);
     setReading(false);
@@ -1175,6 +1253,17 @@ export function FilesPanel({ action }: { action: Action }) {
       if (selection.current === revision) setReading(false);
     }
   };
+  if (changes)
+    return (
+      <ChangesPanel
+        action={action}
+        back={() => {
+          setChanges(false);
+          setEditing(false);
+          setRefresh((n) => n + 1);
+        }}
+      />
+    );
   const visible = entries.filter((entry) =>
     entry.name.toLowerCase().includes(filter.toLowerCase()),
   );
@@ -1183,8 +1272,10 @@ export function FilesPanel({ action }: { action: Action }) {
       <Heading
         eyebrow="FILES"
         title="ファイル"
-        description="作業フォルダ内のファイルと実装内容を確認できます。"
-      />
+        description="作業フォルダ内のファイルを確認・編集できます。"
+      >
+        <button onClick={() => setChanges(true)}>変更を確認</button>
+      </Heading>
       <div className="file-browser">
         <div className="file-path">
           <button
@@ -1248,11 +1339,19 @@ export function FilesPanel({ action }: { action: Action }) {
             )}
           </div>
           <div className="file-content" aria-busy={reading}>
-            {file ? (
+            {editing && selected ? (
+              <FileEditor
+                key={selected}
+                path={selected}
+                close={() => setEditing(false)}
+                saved={() => void read(selected)}
+              />
+            ) : file ? (
               <>
                 <div className="file-info">
                   <code>{file.path.split('/').pop()}</code>
                   <span>{file.totalLines} 行</span>
+                  <button onClick={() => setEditing(true)}>編集する</button>
                 </div>
                 <pre>{file.text}</pre>
                 {file.nextLine && (

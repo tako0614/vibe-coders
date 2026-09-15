@@ -4,8 +4,15 @@ export const fieldSchema = z
   .object({
     name: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/),
     label: z.string().min(1).max(200),
-    type: z.enum(['text', 'choice', 'secret', 'number', 'integer', 'boolean']),
+    type: z.enum(['text', 'choice', 'multiChoice', 'secret', 'number', 'integer', 'boolean']),
     required: z.boolean().default(true),
+    description: z.string().max(2000).optional(),
+    default: z
+      .union([z.string().max(32000), z.number(), z.boolean(), z.array(z.string().max(200)).max(20)])
+      .optional(),
+    pattern: z.string().max(1000).optional(),
+    minItems: z.number().int().nonnegative().max(20).optional(),
+    maxItems: z.number().int().nonnegative().max(20).optional(),
     minimum: z.number().optional(),
     maximum: z.number().optional(),
     minLength: z.number().int().nonnegative().optional(),
@@ -54,7 +61,7 @@ export const humanSpecSchema = z
     if (s.kind === 'action' && s.fields.length) fail('Action requests cannot collect text.');
     if (new Set(s.fields.map((f) => f.name)).size !== s.fields.length)
       fail('Field names must be unique.');
-    if (s.fields.some((f) => f.type === 'choice' && !f.options?.length))
+    if (s.fields.some((f) => ['choice', 'multiChoice'].includes(f.type) && !f.options?.length))
       fail('Choices need options.');
   });
 export type HumanSpec = z.infer<typeof humanSpecSchema>;
@@ -151,6 +158,9 @@ export const mcpSchema = z
     targetId: z.string().max(100).optional(),
     enabled: z.boolean().default(true),
     oauth: z.boolean().optional(),
+    oauthClientId: z.string().trim().min(1).max(1000).optional(),
+    oauthClientSecret: z.boolean().optional(),
+    oauthScope: z.string().trim().max(2000).optional(),
   })
   .strict()
   .superRefine((v, c) => {

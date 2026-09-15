@@ -124,7 +124,11 @@ test('retention removes expired images and idle history while protecting pending
     r.config.update(r.config.read().revision, (c) => {
       c.retention!.conversationDays = 90;
     });
+    r.store.set(`context:${abandoned.id}`, { through: 20, text: 'expired summary' });
+    r.store.set('native-input:expired:operation', { prompt: 'expired instruction' });
     prune(r.store, r.config);
+    expect(r.store.get(`context:${abandoned.id}`, null)).toBeNull();
+    expect(r.store.get('native-input:expired:operation', null)).toBeNull();
     expect(() => r.store.conversation(abandoned.id)).toThrow();
     expect(r.store.conversation(pending.id).title).toBe('Needs user');
   } finally {

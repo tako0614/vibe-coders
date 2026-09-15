@@ -14,6 +14,7 @@ import { HumanService } from './human';
 import type { ToolDefinition } from './model';
 import { mcpSchema, type HumanSpec } from '../shared/contracts';
 import { McpOAuth } from './mcp-auth';
+import { mcpFields } from './mcp-form';
 
 type Connection = {
   client: Client;
@@ -133,7 +134,7 @@ export class McpService {
     signal?.throwIfAborted();
     if (!config.enabled) return;
     const client = new Client(
-      { name: 'vibe-coders', version: '0.1.7' },
+      { name: 'vibe-coders', version: '0.1.8' },
       { capabilities: { elicitation: { form: {}, url: {} } } },
     );
     const c: Connection = {
@@ -157,38 +158,11 @@ export class McpService {
       const isUrl = 'url' in request.params;
       const schema =
         !isUrl && 'requestedSchema' in request.params ? request.params.requestedSchema : undefined;
-      const fields: HumanSpec['fields'] = [];
-      for (const [name, field] of Object.entries(schema?.properties || {})) {
-        // MCP forms cannot ask for secrets. Unsupported schemas are declined,
-        // never converted to an arbitrary HTML form or a secret collector.
-        if (
-          !['string', 'number', 'integer', 'boolean'].includes(field.type) ||
-          /password|secret|token|api.?key/i.test(
-            `${name} ${field.title || ''} ${field.description || ''}`,
-          )
-        )
-          return { action: 'decline' as const };
-        const choices =
-          'enum' in field && Array.isArray(field.enum) ? (field.enum as string[]) : undefined;
-        const constraint = field as Record<string, unknown>;
-        if ('oneOf' in field || 'anyOf' in field || 'pattern' in field)
-          return { action: 'decline' as const };
-        fields.push({
-          name,
-          label: field.title || name,
-          type: choices
-            ? 'choice'
-            : field.type === 'string'
-              ? 'text'
-              : (field.type as 'number' | 'integer' | 'boolean'),
-          required: schema?.required?.includes(name) ?? false,
-          ...Object.fromEntries(
-            ['minimum', 'maximum', 'minLength', 'maxLength', 'format']
-              .filter((k) => k in constraint)
-              .map((k) => [k, constraint[k]]),
-          ),
-          ...(choices ? { options: choices.map((value) => ({ label: value, value })) } : {}),
-        });
+      let fields: HumanSpec['fields'];
+      try {
+        fields = mcpFields(schema || {});
+      } catch {
+        return { action: 'decline' as const };
       }
       const card = this.human.create(c.activeConversation, {
         kind: isUrl ? 'action' : 'input',
@@ -198,12 +172,12 @@ export class McpService {
         ...(isUrl && 'url' in request.params ? { url: request.params.url } : {}),
       });
       return await new Promise<
-        | { action: 'accept'; content?: Record<string, string | number | boolean> }
+        | { action: 'accept'; content?: Record<string, string | number | boolean | string[]> }
         | { action: 'cancel' }
       >((resolve) => {
         const finish = (
           result:
-            | { action: 'accept'; content?: Record<string, string | number | boolean> }
+            | { action: 'accept'; content?: Record<string, string | number | boolean | string[]> }
             | { action: 'cancel' },
         ) => {
           this.store.changes.off('change', check);
@@ -225,11 +199,13 @@ export class McpService {
                         return [
                           [
                             field.name,
-                            field.type === 'boolean'
-                              ? value === 'true'
-                              : ['number', 'integer'].includes(field.type)
-                                ? Number(value)
-                                : value,
+                            field.type === 'multiChoice'
+                              ? (JSON.parse(value) as string[])
+                              : field.type === 'boolean'
+                                ? value === 'true'
+                                : ['number', 'integer'].includes(field.type)
+                                  ? Number(value)
+                                  : value,
                           ],
                         ];
                       }),
@@ -273,6 +249,39 @@ export class McpService {
         throw new Error(c.error);
       }
       const key = this.vault.get(`mcp:${config.name}`, config.revision);
+      const needsClient =
+        config.oauth &&
+        config.oauthClientId &&
+        config.oauthClientSecret &&
+        !this.vault.get(`oauth-client:${config.name}`, config.revision);
+      if (needsClient || (config.transport === 'stdio' && config.credentialEnv && !key)) {
+        const target = needsClient ? `oauth-client:${config.name}` : `mcp:${config.name}`;
+        const pending = this.store
+          .snapshot(conversationId)
+          .requests.some(
+            (r) =>
+              r.spec.targetId === target &&
+              r.targetVersion === config.revision &&
+              ['pending', 'processing'].includes(r.state),
+          );
+        if (!pending)
+          this.human.create(conversationId, {
+            kind: 'secret',
+            title: `${config.name} の認証情報`,
+            targetId: target,
+            message: '専用入力へ保存すると接続確認を再開します。チャットやモデルには送信しません。',
+            fields: [
+              {
+                name: 'credential',
+                label: needsClient ? 'OAuthクライアントシークレット' : config.credentialEnv!,
+                type: 'secret',
+              },
+            ],
+          });
+        c.state = 'awaiting_auth';
+        this.store.notify();
+        return;
+      }
       const auth = config.oauth
         ? new McpOAuth(this.config, this.vault, this.store, this.human, config, conversationId)
         : undefined;

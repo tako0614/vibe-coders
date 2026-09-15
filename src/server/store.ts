@@ -84,6 +84,10 @@ export class Store {
     if (this.stopped) throw new Error('All execution is stopped. Enable it explicitly first.');
   }
   snapshot(id: string) {
+    const context = this.get<{ through: number; count: number; updatedAt: number } | null>(
+      `context:${id}`,
+      null,
+    );
     return {
       conversation: this.conversation(id),
       messages: this.history(id),
@@ -107,12 +111,25 @@ export class Store {
                   adapter: result.adapter,
                   threadId: result.threadId,
                   turnId: result.turnId,
+                  inputMode: run.state === 'running' ? result.inputMode : undefined,
                   sessionId: result.sessionId,
                   turnState: run.state === 'interrupted' ? 'unknown' : result.turnState,
                 }
-              : null,
+              : result?.install
+                ? {
+                    install: true,
+                    name: result.name,
+                    package: result.package,
+                    version: result.version,
+                    stage: result.stage,
+                    error: result.error,
+                  }
+                : null,
         })),
       schedules: this.db.select().from(s.schedules).where(eq(s.schedules.conversationId, id)).all(),
+      context: context
+        ? { through: context.through, count: context.count, updatedAt: context.updatedAt }
+        : null,
       stopped: this.stopped,
     };
   }

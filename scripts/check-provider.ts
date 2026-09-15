@@ -64,9 +64,23 @@ try {
     'This is an end-to-end test in a temporary repository. Use only file_read, file_write, memory_write, human_request and agent_wait. Do not invoke native_start or shell_exec. Read AGENT.md; create provider-proof.txt containing exactly PROVIDER_E2E_OK and a newline; read it back; save a memory that the test color is green; ask one nonsecret text question with human_request and then continue inspecting the file while waiting. You will receive the answer automatically. After receiving it, report the created file and color. Do not access other directories, use external services, or delegate.',
     crypto.randomUUID(),
   );
-  await eventually(() => r.store.history(r.id).some((m) => m.body.role === 'assistant'), 120000);
+  await eventually(
+    () =>
+      r.store.history(r.id).some((m) => m.body.role === 'assistant') ||
+      r.store.conversation(r.id).state === 'error',
+    120000,
+  );
   await eventually(() => ['idle', 'error'].includes(r.store.conversation(r.id).state), 120000);
-  assert.equal(r.store.conversation(r.id).state, 'idle');
+  assert.equal(
+    r.store.conversation(r.id).state,
+    'idle',
+    JSON.stringify(
+      r.store
+        .history(r.id)
+        .filter((m) => m.body.role === 'system')
+        .map((m) => m.body.content),
+    ),
+  );
   assert.equal(await Bun.file(join(r.home, 'provider-proof.txt')).text(), 'PROVIDER_E2E_OK\n');
   assert.equal(answered, true);
   assert.ok((await r.memory.human.search('green')).items.length);

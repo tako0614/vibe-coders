@@ -325,6 +325,8 @@ export class RunService {
         stop: row.state === 'running',
         immediateInput: row.kind === 'terminal' && !!live?.write,
         nextTurnViaResume: row.kind === 'native',
+        nativeInput:
+          row.kind === 'native' && row.state === 'running' ? row.result?.inputMode || false : false,
       },
       turnState:
         row.kind === 'native' && row.state !== 'interrupted'

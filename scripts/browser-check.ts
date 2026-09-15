@@ -112,6 +112,15 @@ try {
   await evaluate(`document.querySelector('form').requestSubmit()`);
   await until(`!!document.querySelector('.welcome')`);
   await screenshot('desktop');
+  await setValue('.composer textarea', '送信済みの下書きを残さない');
+  await evaluate(`document.querySelector('button[aria-label="メッセージを送信"]').click()`);
+  await until(`!!document.querySelector('.provider-picker')`);
+  await until(
+    `new Promise(done => { const r = indexedDB.open('vibe-coders-drafts'); r.onsuccess = () => { const db = r.result, g = db.transaction('drafts').objectStore('drafts').getAll(); g.onsuccess = () => { done(!g.result.some(d => d.text === '送信済みの下書きを残さない')); db.close(); }; }; })`,
+  );
+  await clickText('チャット');
+  await until(`document.querySelector('.composer textarea')?.value === ''`);
+
   const previousChats = await evaluate(
     `document.querySelectorAll('.conversation-list button').length`,
   );
@@ -156,10 +165,37 @@ try {
     if (await evaluate(`!!document.querySelector('.xterm')`))
       throw new Error('Native run has a fabricated PTY.');
     await until(`document.querySelector('.run-details')?.textContent.includes('native-thread')`);
+    if (
+      await evaluate(
+        `Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('終了した実行を表示'))`,
+      )
+    )
+      await clickText('終了した実行を表示');
     await setValue('.run-details textarea[name="prompt"]', 'follow-up');
     await evaluate(`document.querySelector('.run-details form').requestSubmit()`);
     await until(
       `document.querySelectorAll('.session-list button').length === 2 && document.querySelector('.terminal-footer')?.textContent.includes('completed')`,
+    );
+    await setValue('.native-launch textarea[name="prompt"]', 'wait');
+    await evaluate(`document.querySelector('.native-launch form').requestSubmit()`);
+    await until(
+      `document.querySelector('.run-details')?.textContent.includes('実行中の作業への追加指示')`,
+    );
+    await setValue('.run-details textarea[name="prompt"]', 'browser steering accepted');
+    await evaluate(`document.querySelector('.run-details form').requestSubmit()`);
+    await until(
+      `document.querySelector('.run-output')?.textContent.includes('browser steering accepted') && document.querySelector('.terminal-footer')?.textContent.includes('completed')`,
+    );
+    await evaluate(
+      `document.querySelector('.native-launch select[name="adapter"]').value = 'claude'`,
+    );
+    await setValue('.native-launch textarea[name="prompt"]', 'wait');
+    await evaluate(`document.querySelector('.native-launch form').requestSubmit()`);
+    await until(`document.querySelector('.run-details')?.textContent.includes('現在の処理を中断')`);
+    await setValue('.run-details textarea[name="prompt"]', 'browser claude redirect');
+    await evaluate(`document.querySelector('.run-details form').requestSubmit()`);
+    await until(
+      `document.querySelector('.run-output')?.textContent.includes('browser claude redirect') && document.querySelector('.terminal-footer')?.textContent.includes('completed')`,
     );
     await screenshot('native');
   }
@@ -234,12 +270,55 @@ try {
   await until(`document.body.textContent.includes('AGENT.md')`);
   await clickText('AGENT.md');
   await until(`!!document.querySelector('.file-content pre')`);
+  const originalFile = await evaluate(`document.querySelector('.file-content pre').textContent`);
+  await clickText('編集する');
+  await until(`!!document.querySelector('.file-editor textarea')`);
+  await setValue('.file-editor textarea', originalFile + '\nBROWSER_EDIT_PROOF\n');
+  await clickText('ファイルを保存');
+  await until(`document.querySelector('.file-editor button.primary')?.disabled === true`);
+  await clickText('変更を確認');
+  await until(`!!document.querySelector('.change-list button')`);
+  await clickText('AGENT.md');
+  await until(`document.querySelector('.file-diff')?.textContent.includes('+BROWSER_EDIT_PROOF')`);
+  await screenshot('file-changes');
+  await clickText('変更前に戻す');
+  await clickText('このファイルを復元');
+  await until(`!document.querySelector('.change-list button')`);
+  await clickText('ファイル一覧へ');
+  await until(`!!document.querySelector('.file-browser')`);
+  await clickText('AGENT.md');
+  await until(
+    `!!document.querySelector('.file-content pre') && !document.querySelector('.file-content pre').textContent.includes('BROWSER_EDIT_PROOF')`,
+  );
+
   await clickText('設定・接続');
   await until(`!!document.querySelector('.provider-picker')`);
   await clickText('MCP');
   await until(`document.querySelector('textarea[name="request"]')?.checkVisibility()`);
   if (await evaluate(`document.body.textContent.includes('普段のChromeに接続')`))
     throw new Error('Browser-specific configuration is still shown.');
+  await until(`!!document.querySelector('.mcp-install')`);
+  await evaluate(`document.querySelector('.mcp-install').open = true`);
+  if (await evaluate(`document.querySelector('.mcp-install button.primary').disabled`))
+    throw new Error('npm installation depends on the AI provider');
+  if (process.env.VIBE_CODER_TEST_INSTALL === '1') {
+    await setValue('.mcp-install input[name="name"]', 'browser-installed');
+    await setValue('.mcp-install input[name="package"]', 'chrome-devtools-mcp');
+    await setValue('.mcp-install input[name="version"]', '1.9.0');
+    await setValue(
+      '.mcp-install input[name="args"]',
+      JSON.stringify([
+        '--browser-url=' + endpoint,
+        '--no-usage-statistics',
+        '--no-performance-crux',
+      ]),
+    );
+    await evaluate(`document.querySelector('.mcp-install form').requestSubmit()`);
+    await until(
+      `Array.from(document.querySelectorAll('.connection-row')).some(r => r.textContent.includes('browser-installed') && r.textContent.includes('接続済み') && r.textContent.includes('29 tools'))`,
+      180000,
+    );
+  }
   await screenshot('mcp-settings');
   await clickText('AI接続');
   await evaluate(
@@ -310,6 +389,28 @@ try {
   await until(
     `document.querySelector('.composer textarea')?.value === '画面を切り替えても残る下書き'`,
   );
+  await evaluate(`(() => {
+    const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII='), c => c.charCodeAt(0));
+    const data = new DataTransfer(); data.items.add(new File([bytes], 'draft.png', { type: 'image/png' }));
+    const input = document.querySelector('input[type="file"]'); input.files = data.files; input.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await until(`document.querySelectorAll('.attachment-preview img').length === 1`);
+  await until(
+    `new Promise(resolve => { const req = indexedDB.open('vibe-coders-drafts', 1); req.onsuccess = () => { const db = req.result, tx = db.transaction('drafts'); const get = tx.objectStore('drafts').getAll(); get.onsuccess = () => { resolve(get.result.some(d => d.text === '画面を切り替えても残る下書き' && d.images.length === 1)); db.close(); }; }; })`,
+  );
+  await evaluate('window.__draftReloadPending = true');
+  await command('Page.reload', {}, sessionId);
+  await until(
+    `!window.__draftReloadPending && (!!document.querySelector('input[name="username"]') || !!document.querySelector('.composer'))`,
+  );
+  if (await evaluate(`!!document.querySelector('input[name="username"]')`)) {
+    await setValue('input[name="username"]', 'owner');
+    await setValue('input[name="password"]', 'test-only-password-123');
+    await evaluate(`document.querySelector('form').requestSubmit()`);
+  }
+  await until(
+    `!window.__draftReloadPending && document.readyState === 'complete' && document.querySelector('.composer textarea')?.value === '画面を切り替えても残る下書き' && document.querySelectorAll('.attachment-preview img').length === 1`,
+  );
   await command(
     'Network.emulateNetworkConditions',
     { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 },
@@ -366,18 +467,22 @@ try {
         'draft retention, reconnect status and rapid file selection',
         'schedule save',
         'memory save',
-        'file read',
+        'file edit, diff and guarded restore',
+        'text and image drafts survive page reload; send clears storage before navigation',
         'provider config',
         'secret form',
         'mobile layout',
-        'generic MCP setup form',
+        'MCP setup and provider-independent npm installation form',
         ...(process.env.VIBE_CODER_TEST_AUTH === '1'
           ? [
               'Codex login card, private code removal, queued continuation and parent subscription selection',
             ]
           : []),
         ...(process.env.VIBE_CODER_TEST_NATIVE === '1'
-          ? ['native output, turn state and session continuation']
+          ? ['native output, session continuation, Codex steering and Claude interruption']
+          : []),
+        ...(process.env.VIBE_CODER_TEST_INSTALL === '1'
+          ? ['real npm installation and MCP discovery from WebUI']
           : []),
         ...(process.env.VIBE_CODER_TEST_DESKTOP === '1' ? ['live VNC in WebUI and handoff'] : []),
       ],

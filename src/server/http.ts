@@ -297,6 +297,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     ),
   );
   app.post('/api/runs', async (c) => {
+    await r.changes.ready;
     const body = z
       .object({
         conversationId: z.string(),
@@ -311,6 +312,9 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       201,
     );
   });
+  app.post('/api/native/:id/input', async (c) =>
+    c.json(await r.native.input(c.req.param('id'), await c.req.json())),
+  );
   app.post('/api/native', async (c) => {
     const body = z
       .object({ conversationId: z.string(), spec: nativeSchema })
@@ -352,6 +356,32 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
   app.post('/api/schedules/:id/fire', (c) => {
     r.scheduler.fire(c.req.param('id'), Date.now(), true);
     return c.json({ fired: true });
+  });
+  app.get('/api/changes', async (c) => c.json(await r.changes.list()));
+  app.get('/api/changes/file', async (c) =>
+    c.json(await r.changes.detail(z.string().min(1).parse(c.req.query('path')))),
+  );
+  app.put('/api/changes/file', async (c) => {
+    r.store.assertEnabled();
+    const body = z
+      .object({
+        path: z.string().min(1),
+        content: z.string().max(2 * 1024 * 1024),
+        expectedSha256: z.string().nullable(),
+      })
+      .parse(await c.req.json());
+    return c.json(await r.changes.edit(body.path, body.content, body.expectedSha256));
+  });
+  app.post('/api/changes/restore', async (c) => {
+    r.store.assertEnabled();
+    const body = z
+      .object({
+        path: z.string().min(1),
+        expectedSha256: z.string().nullable(),
+        baselineId: z.string().uuid(),
+      })
+      .parse(await c.req.json());
+    return c.json(await r.changes.restore(body.path, body.expectedSha256, body.baselineId));
   });
   app.get('/api/files', async (c) => c.json(await r.files.list(c.req.query('path') || '.')));
   app.get('/api/files/read', async (c) =>
@@ -410,7 +440,12 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
         fields: [
           {
             name: 'credential',
-            label: targetId === 'desktop' ? 'VNCパスワード' : 'APIキー / トークン',
+            label:
+              targetId === 'desktop'
+                ? 'VNCパスワード'
+                : targetId.startsWith('oauth-client:')
+                  ? 'OAuthクライアントシークレット'
+                  : 'APIキー / トークン',
             type: 'secret',
             required: true,
           },
@@ -438,6 +473,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     await r.mcp.remove(r.config.read().revision, c.req.param('name'));
     return c.json(r.config.public());
   });
+  app.post('/api/mcp/install', async (c) => c.json(r.mcpInstaller.start(await c.req.json()), 202));
   app.post('/api/mcp/setup', async (c) => {
     const { conversationId, request, operationId } = z
       .object({
