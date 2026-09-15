@@ -21,6 +21,8 @@
 - CLI fixture：Codexの実行中steer、Claudeのinterruptと追加指示、同じ操作IDの再送抑制、古いターンへの送信拒否、全停止。
 - stdio MCPとHTTP OAuth fixture：表示名・複数選択の値と制約、既定値、資格情報を接続版へ結び付ける処理、従来のdiscovery・PKCE・callback再利用拒否。
 
+公開npmの0.1.8について、tarballのSHA-512一致、公開registryからの再インストール、CLI起動とHome初期化を確認しました。稼働中のローカル版も0.1.8へ更新し、設定revision 6、既存の2会話、Codexのサブスク認証、共有デスクトップを引き継いで起動しています。LANの実画面で新しいファイル差分画面を確認しました。更新前の設定・会話DB・Atom DBは別ファイルへバックアップし、SQLiteの整合性を確認しています。
+
 ## 実AIの再検証結果
 
 親Codexとnative Codexは、どちらも実アカウントの利用枠上限を返しました。新しいClaude通信方式は初期化できましたが、実推論は `OAuth session expired and could not be refreshed` で終了しました。別のOpenAI互換APIの実接続先・モデル・キーは提供されていません。**0.1.8の実AIによる一連の作業完了は未確認です。** 過去版の完走記録やfixtureを、この版の実推論成功としては扱いません。
