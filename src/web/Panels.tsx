@@ -1,4 +1,4 @@
-import { McpInstall } from './McpInstall';
+import { McpSettings } from './McpSettings';
 import { ChangesPanel, FileEditor } from './ChangesPanel';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -6,11 +6,9 @@ import {
   ArrowUpRight,
   Brain,
   Check,
-  Clock3,
   Folder,
   FileText,
   Hand,
-  Link2,
   Monitor,
   Play,
   Plus,
@@ -26,12 +24,10 @@ import type { Action, View } from './App';
 import { ProviderSettings } from './ProviderSettings';
 
 function Heading({
-  eyebrow,
   title,
   description,
   children,
 }: {
-  eyebrow: string;
   title: string;
   description: string;
   children?: React.ReactNode;
@@ -46,10 +42,9 @@ function Heading({
     </div>
   );
 }
-function Empty({ icon: Icon, title, text }: { icon: typeof Brain; title: string; text: string }) {
+function Empty({ title, text }: { title: string; text: string }) {
   return (
     <div className="empty-panel">
-      <Icon size={27} />
       <h3>{title}</h3>
       <p>{text}</p>
     </div>
@@ -66,7 +61,6 @@ export function SchedulesPanel({ snapshot, action }: { snapshot: Snapshot; actio
   return (
     <section className="page">
       <Heading
-        eyebrow="SCHEDULES"
         title="予定"
         description="指定した時刻に指示やコマンドを実行します。停止中に過ぎた周期は一回にまとめます。"
       >
@@ -224,9 +218,6 @@ export function SchedulesPanel({ snapshot, action }: { snapshot: Snapshot; actio
         <div className="item-list">
           {snapshot.schedules.map((s) => (
             <article className="list-card" key={s.id}>
-              <div className="list-icon">
-                <Clock3 size={19} />
-              </div>
               <div className="list-body">
                 <h3>
                   {s.title}
@@ -271,7 +262,6 @@ export function SchedulesPanel({ snapshot, action }: { snapshot: Snapshot; actio
       ) : (
         !editing && (
           <Empty
-            icon={Clock3}
             title="予定はまだありません"
             text="定期的に確認したいことや、後で動かしたい作業を登録できます。"
           />
@@ -294,8 +284,7 @@ export function SettingsPanel({
   action: Action;
   onView: (v: View, section?: string) => void;
 }) {
-  const [mcpForm, setMcpForm] = useState(false),
-    [desktopForm, setDesktopForm] = useState(false);
+  const [desktopForm, setDesktopForm] = useState(false);
   const [section, setSection] = useState(initialSection);
   const key = (targetId: string) =>
     action(async () => {
@@ -307,11 +296,7 @@ export function SettingsPanel({
     });
   return (
     <section className="page settings-page">
-      <Heading
-        eyebrow="SETTINGS & CONNECTIONS"
-        title="設定・接続"
-        description="AIやツールの接続、実行環境を管理します。"
-      />
+      <Heading title="設定・接続" description="AIやツールの接続、実行環境を管理します。" />
       <div className="settings-tabs" role="tablist" aria-label="設定の種類">
         {[
           ['model', 'AI接続'],
@@ -328,233 +313,11 @@ export function SettingsPanel({
       {section === 'model' && (
         <ProviderSettings status={status} snapshot={snapshot} action={action} onView={onView} />
       )}
-      <section className="form-card" hidden={section !== 'mcp'}>
-        <div className="section-heading">
-          <span className="list-icon">
-            <Link2 size={18} />
-          </span>
-          <div>
-            <h2>MCP接続</h2>
-            <p>使いたい機能の導入から接続・動作確認まで依頼</p>
-          </div>
-          <button onClick={() => setMcpForm(!mcpForm)}>
-            <Plus size={14} />
-            手動で設定
-          </button>
-        </div>
-        <form
-          className="nested-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            const request = String(new FormData(form).get('request') || '');
-            void action(async () => {
-              await api('/mcp/setup', 'POST', {
-                conversationId: snapshot.conversation.id,
-                request,
-                operationId: operationId(),
-              });
-              form.reset();
-              onView('chat');
-            });
-          }}
-        >
-          <label>
-            追加したい機能
-            <textarea
-              name="request"
-              rows={3}
-              required
-              maxLength={8000}
-              placeholder="Chromeを導入してMCPで接続し、ページを操作できるようにして"
-            />
-          </label>
-          <div className="form-actions">
-            <button className="primary" disabled={!status.providerReady}>
-              AIに導入を依頼
-            </button>
-          </div>
-          {!status.providerReady && (
-            <small className="muted">
-              先に親AIの接続方法を選び、CodexログインまたはAPIキーを設定してください。
-            </small>
-          )}
-        </form>
-        <McpInstall snapshot={snapshot} action={action} onRun={() => onView('terminal')} />
-        {status.mcp.length ? (
-          status.mcp.map((m) => (
-            <div className="connection-row" key={m.name}>
-              <span>
-                <strong>{m.name}</strong>
-                <small>
-                  {stateLabel[m.state]} · {m.tools} tools{m.targetId ? ` · ${m.targetId}` : ''}
-                </small>
-                {m.error && <small className="danger">{m.error}</small>}
-              </span>
-              <div>
-                <button
-                  onClick={() =>
-                    void action(() =>
-                      api(`/config/mcp/${m.name}/connect`, 'POST', {
-                        conversationId: snapshot.conversation.id,
-                      }),
-                    )
-                  }
-                >
-                  接続
-                </button>
-                {m.state === 'connected' && (
-                  <button
-                    onClick={() =>
-                      void action(() => api(`/config/mcp/${m.name}/disconnect`, 'POST', {}))
-                    }
-                  >
-                    切断
-                  </button>
-                )}
-                {status.config.mcp.find((c) => c.name === m.name)?.oauthClientSecret && (
-                  <button onClick={() => void key(`oauth-client:${m.name}`)}>
-                    クライアント認証
-                  </button>
-                )}
-                {status.config.mcp.find((c) => c.name === m.name)?.oauth ? (
-                  <button onClick={() => onView('requests')}>認証の進行を確認</button>
-                ) : (
-                  <button onClick={() => void key(`mcp:${m.name}`)}>認証</button>
-                )}
-                <button
-                  className="icon-button danger"
-                  aria-label={`${m.name}を削除`}
-                  onClick={() => void action(() => api(`/config/mcp/${m.name}`, 'DELETE', {}))}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="muted">
-            まだ接続がありません。追加後に接続して、実際のツール一覧を取得します。
-          </p>
-        )}
-        {mcpForm && (
-          <form
-            className="nested-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(async () => {
-                const transport = String(f.get('transport'));
-                const connection = {
-                  name: String(f.get('name')),
-                  transport,
-                  args: JSON.parse(String(f.get('args') || '[]')),
-                  enabled: true,
-                  oauth: f.get('oauth') === 'on',
-                  ...(f.get('oauthClientId')
-                    ? {
-                        oauthClientId: String(f.get('oauthClientId')),
-                        oauthClientSecret: f.get('oauthClientSecret') === 'on',
-                      }
-                    : {}),
-                  ...(f.get('oauthScope') ? { oauthScope: String(f.get('oauthScope')) } : {}),
-                  ...(String(f.get('credentialEnv') || '').trim()
-                    ? { credentialEnv: String(f.get('credentialEnv')).trim() }
-                    : {}),
-                  ...(transport === 'stdio'
-                    ? { command: String(f.get('command')) }
-                    : { url: String(f.get('url')) }),
-                  ...(f.get('desktop') === 'on' ? { targetId: 'desktop' } : {}),
-                };
-                await api('/config/mcp', 'PUT', { revision: status.config.revision, connection });
-                setMcpForm(false);
-                await api(`/config/mcp/${connection.name}/connect`, 'POST', {
-                  conversationId: snapshot.conversation.id,
-                });
-              });
-            }}
-          >
-            <label>
-              接続名
-              <input
-                name="name"
-                pattern="[A-Za-z][A-Za-z0-9_-]{0,39}"
-                required
-                placeholder="tools"
-              />
-            </label>
-            <label>
-              通信方法
-              <select name="transport">
-                <option value="stdio">ローカルプロセス (stdio)</option>
-                <option value="http">HTTP</option>
-              </select>
-            </label>
-            <div className="form-grid">
-              <label>
-                実行コマンド
-                <input name="command" placeholder="npx" />
-              </label>
-              <label>
-                引数（JSON配列）
-                <input name="args" defaultValue="[]" />
-              </label>
-            </div>
-            <label>
-              HTTPエンドポイント
-              <input name="url" type="url" placeholder="https://example.com/mcp" />
-            </label>
-            <label>
-              stdio接続に認証情報を渡す環境変数名（任意）
-              <input name="credentialEnv" placeholder="SERVICE_API_KEY" />
-            </label>
-            <small className="muted">
-              秘密の値は登録後の専用入力で保存します。この接続のプロセスにだけ渡します。
-            </small>
-            <label className="checkbox">
-              <input type="checkbox" name="desktop" />
-              共有デスクトップと同じ対象を操作する
-            </label>
-            <label className="checkbox">
-              <input type="checkbox" name="oauth" />
-              HTTP接続でOAuth認証を使う
-            </label>
-            <details>
-              <summary>事前登録したOAuthクライアント（任意）</summary>
-              <label>
-                クライアントID
-                <input name="oauthClientId" />
-              </label>
-              <label>
-                スコープ
-                <input name="oauthScope" placeholder="スペース区切り" />
-              </label>
-              <label className="checkbox">
-                <input name="oauthClientSecret" type="checkbox" />
-                クライアントシークレットを使う
-              </label>
-              <small className="muted">
-                シークレットは登録後の「クライアント認証」から保存してください。リダイレクト先には、この画面のURLの
-                /api/mcp/oauth/callback を登録します。
-              </small>
-            </details>
-            <small className="muted">
-              接続先が同じブラウザ・画面を扱う場合に選択してください。手動操作中のAIアクセスを連動させます。
-            </small>
-            <div className="form-actions">
-              <button className="primary">登録して接続</button>
-              <button type="button" onClick={() => setMcpForm(false)}>
-                閉じる
-              </button>
-            </div>
-          </form>
-        )}
-      </section>
+      {section === 'mcp' && (
+        <McpSettings status={status} snapshot={snapshot} action={action} onView={onView} />
+      )}
       <section className="form-card" hidden={section !== 'desktop'}>
         <div className="section-heading">
-          <span className="list-icon">
-            <Monitor size={18} />
-          </span>
           <div>
             <h2>共有デスクトップ</h2>
             <p>インストール先の画面を自動で共有</p>
@@ -789,7 +552,6 @@ export function MemoryPanel({ action }: { action: Action }) {
   return (
     <section className="page">
       <Heading
-        eyebrow="ATOM MEMORY"
         title="記憶"
         description="必要な記憶を推論のたびに取り出します。記憶の保存や修正も、エージェントに依頼できます。"
       >
@@ -861,7 +623,6 @@ export function MemoryPanel({ action }: { action: Action }) {
         </div>
       ) : (
         <Empty
-          icon={Brain}
           title="一致する記憶はありません"
           text="大切な文脈を保存すると、次の作業で取り出せるようになります。"
         />
@@ -960,11 +721,7 @@ export function FilesPanel({ action }: { action: Action }) {
   );
   return (
     <section className="page">
-      <Heading
-        eyebrow="FILES"
-        title="ファイル"
-        description="作業フォルダ内のファイルを確認・編集できます。"
-      >
+      <Heading title="ファイル" description="作業フォルダ内のファイルを確認・編集できます。">
         <button onClick={() => setChanges(true)}>変更を確認</button>
       </Heading>
       <div className="file-browser">
@@ -1056,11 +813,7 @@ export function FilesPanel({ action }: { action: Action }) {
                 ファイルを読み込み中…
               </p>
             ) : (
-              <Empty
-                icon={FileText}
-                title="ファイルを選択"
-                text="ファイルの内容をここで確認できます。"
-              />
+              <Empty title="ファイルを選択" text="ファイルの内容をここで確認できます。" />
             )}
           </div>
         </div>
@@ -1073,10 +826,12 @@ export function DesktopPanel({
   status,
   action,
   onView,
+  compact = false,
 }: {
   status: Status;
   action: Action;
   onView: (v: View, section?: string) => void;
+  compact?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null),
     [connection, setConnection] = useState('未接続'),
@@ -1144,9 +899,8 @@ export function DesktopPanel({
     };
   }, [desktop.configured, desktop.owner, desktop.epoch, status.stopped, attempt]);
   return (
-    <section className="page desktop-page">
+    <section className={`page desktop-page ${compact ? 'desktop-compact' : ''}`}>
       <Heading
-        eyebrow="COMPUTER"
         title="デスクトップ"
         description="インストール先の画面を共有します。手動操作中は、この画面へのAIの観測と入力が止まります。"
       >

@@ -23,7 +23,8 @@ import { requests } from './db/schema';
 import type { Runtime } from './runtime';
 import type { WSContext } from 'hono/ws';
 import { providerCredentialSchema } from '../shared/models';
-import { providerModels, savedProviderCredential } from './provider-models';
+import { providerModels } from './provider-models';
+import { updateProvider, updateSettings } from './settings';
 
 export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {}) {
   const r = runtime,
@@ -258,21 +259,15 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     const { revision, search } = z
       .object({ revision: z.number().int(), search: searchSchema })
       .parse(await c.req.json());
-    r.config.update(revision, (v) => {
-      v.search = { ...search, revision: (v.search?.revision || 0) + 1 };
-    });
-    r.store.notify();
-    return c.json(r.config.public());
+    return c.json(updateSettings(r, { revision, change: { section: 'search', value: search } }));
   });
   app.put('/api/config/retention', async (c) => {
     const { revision, retention } = z
       .object({ revision: z.number().int(), retention: retentionSchema })
       .parse(await c.req.json());
-    r.config.update(revision, (v) => {
-      v.retention = retention;
-    });
-    r.store.notify();
-    return c.json(r.config.public());
+    return c.json(
+      updateSettings(r, { revision, change: { section: 'retention', value: retention } }),
+    );
   });
   app.post('/api/retention/prune', (c) => c.json(prune(r.store, r.config)));
   app.post('/api/human/:id/secret', async (c) =>
@@ -425,44 +420,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       })
       .strict()
       .parse(await c.req.json());
-    if (provider.kind === 'codex' && credential)
-      throw new Error('Codexは端末の認証情報を使用します。');
-    if (/^sk-[\w-]{20,}$/.test(provider.model))
-      throw new Error('APIキーはモデル名ではなく、APIキーの専用欄に入力してください。');
-    const previous = r.config.read().provider;
-    if (
-      (previous?.model !== provider.model ||
-        previous?.baseUrl !== provider.baseUrl ||
-        previous?.kind !== provider.kind) &&
-      r.store.listConversations().some((conversation) => conversation.state === 'running')
-    )
-      throw new Error('実行が完了してからモデルや接続先を変更してください。');
-    const key =
-      provider.kind === 'codex' || !provider.keyRequired
-        ? undefined
-        : credential || savedProviderCredential(r.config, r.vault, provider.baseUrl);
-    const config = r.config.update(revision, (v) => {
-      v.provider = {
-        ...provider,
-        ...(provider.kind === 'codex'
-          ? {
-              baseUrl: 'https://chatgpt.com/backend-api/codex',
-              keyRequired: false,
-              supportsImages: true,
-            }
-          : {}),
-        revision: (v.provider?.revision || 0) + 1,
-      };
-    });
-    if (key)
-      r.config.lock(() => {
-        if (r.config.read().revision !== config.revision)
-          throw new Error('接続設定が変更されました。再読み込みしてください。');
-        r.vault.put('provider:main', config.provider!.revision, crypto.randomUUID(), key);
-      });
-    r.store.notify();
-    if (provider.kind === 'codex') void r.codex.refresh().catch(() => {});
-    return c.json({ ...r.config.public(), credentialReady: !provider.keyRequired || !!key });
+    return c.json(updateProvider(r, { revision, provider, credential }));
   });
   app.post('/api/config/secret-request', async (c) => {
     const { conversationId, targetId } = z
@@ -511,23 +469,6 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     return c.json(r.config.public());
   });
   app.post('/api/mcp/install', async (c) => c.json(r.mcpInstaller.start(await c.req.json()), 202));
-  app.post('/api/mcp/setup', async (c) => {
-    const { conversationId, request, operationId } = z
-      .object({
-        conversationId: z.string(),
-        request: z.string().trim().min(1).max(8000),
-        operationId: z.string().uuid(),
-      })
-      .strict()
-      .parse(await c.req.json());
-    r.store.assertEnabled();
-    r.agent.submit(
-      conversationId,
-      `MCPで次の機能を使えるようにしてください。必要な環境の確認・導入・接続設定・接続後の動作確認まで進めてください。\n${request}`,
-      operationId,
-    );
-    return c.json({ conversationId, queued: true }, 202);
-  });
   app.get('/api/codex/models', async (c) => c.json(await r.codex.models()));
   app.get('/api/codex/auth', (c) => c.json(r.codex.userStatus()));
   app.post('/api/codex/auth/refresh', async (c) => c.json(await r.codex.refresh()));
@@ -546,11 +487,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     const { revision, desktop } = z
       .object({ revision: z.number().int(), desktop: desktopSchema })
       .parse(await c.req.json());
-    r.config.update(revision, (v) => {
-      v.desktop = { ...desktop, revision: (v.desktop?.revision || 0) + 1 };
-    });
-    r.desktop.handoff('agent');
-    return c.json(r.config.public());
+    return c.json(updateSettings(r, { revision, change: { section: 'desktop', value: desktop } }));
   });
   app.post('/api/desktop/prepare', async (c) => c.json(await r.desktop.prepare()));
   app.get('/api/desktop/preview', async (c) => c.json(await r.desktop.preview()));

@@ -2,14 +2,13 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import {
   ArrowUpRight,
   Brain,
-  Check,
-  CircleHelp,
   Clock3,
   FolderOpen,
   Inbox,
   MessageSquare,
   Monitor,
-  Plus,
+  SquarePen,
+  ChevronDown,
   Settings2,
   Search,
   SquareTerminal,
@@ -17,8 +16,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
-import { api, ApiError, listen, setLogin, stateLabel, type Snapshot, type Status } from './api';
-import { Chat, RequestCard, type ComposerDraft } from './Chat';
+import { api, ApiError, listen, setLogin, type Snapshot, type Status } from './api';
+import { RequestCard, type ComposerDraft } from './Chat';
+import { AgentWorkspace } from './AgentWorkspace';
 const TerminalPanel = lazy(() =>
   import('./TerminalWorkspace').then((m) => ({ default: m.TerminalPanel })),
 );
@@ -56,6 +56,26 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const side = useRef<HTMLElement>(null),
     menu = useRef<HTMLButtonElement>(null);
+  const toolsMenu = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      const node = toolsMenu.current;
+      if (node?.open && !node.contains(event.target as Node)) node.open = false;
+    };
+    const escape = (event: KeyboardEvent) => {
+      const node = toolsMenu.current;
+      if (event.key === 'Escape' && node?.open) {
+        node.open = false;
+        node.querySelector('summary')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', escape);
+    };
+  }, []);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 760px)');
     const changed = () => {
@@ -154,6 +174,7 @@ export function App() {
   const navigate = (next: View, section = 'model') => {
     if (next === 'settings') setSettingsSection(section);
     setView(next);
+    if (toolsMenu.current) toolsMenu.current.open = false;
     if (mobile) setSidebar(false);
   };
   const choose = (id: string) => {
@@ -161,6 +182,7 @@ export function App() {
     setSelected(id);
     setSnapshot(undefined);
     setView('chat');
+    if (toolsMenu.current) toolsMenu.current.open = false;
     if (mobile) setSidebar(false);
     try {
       if (status) localStorage.setItem(`vibe-conversation:${status.home}`, id);
@@ -196,14 +218,9 @@ export function App() {
             void refresh();
           }}
         >
-          <div className="wordmark">
-            <span className="brand-icon">
-              <SquareTerminal size={20} />
-            </span>
-            Vibe Coders
-          </div>
-          <h1>作業場所に戻る</h1>
-          <p>セットアップで登録した認証情報を入力してください。</p>
+          <div className="wordmark">Vibe Coders</div>
+          <h1>ログイン</h1>
+          <p>このワークスペースのユーザー名とパスワードを入力してください。</p>
           <label>
             ユーザー名
             <input name="username" autoComplete="username" required />
@@ -237,7 +254,9 @@ export function App() {
         aria-modal={mobile && sidebar ? true : undefined}
         onKeyDown={(e) => {
           if (!mobile || !sidebar || e.key !== 'Tab') return;
-          const nodes = side.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input');
+          const nodes = Array.from(
+            side.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input') || [],
+          ).filter((node) => node.getClientRects().length > 0);
           if (!nodes?.length) return;
           if (e.shiftKey && document.activeElement === nodes[0]) {
             e.preventDefault();
@@ -248,14 +267,11 @@ export function App() {
           }
         }}
       >
-        <div className="wordmark">
-          <span className="brand-icon">
-            <SquareTerminal size={19} />
-          </span>
-          Vibe Coders
+        <div className="sidebar-heading">
+          <span className="wordmark">Vibe Coders</span>
           {mobile && (
             <button
-              className="icon-button sidebar-close"
+              className="icon-button"
               aria-label="サイドバーを閉じる"
               onClick={() => setSidebar(false)}
             >
@@ -263,44 +279,14 @@ export function App() {
             </button>
           )}
         </div>
-        <button className="home-label" onClick={() => navigate('files')} title={status?.home}>
-          <span className="repo-avatar">
-            {status?.home.split('/').pop()?.slice(0, 1).toUpperCase() || 'V'}
-          </span>
-          <span>
-            <strong>{status?.home.split('/').pop() || 'Workspace'}</strong>
-            <small>作業フォルダ</small>
-          </span>
-          <ArrowUpRight size={14} />
-        </button>
         <button
           className="new-chat"
           aria-label="新しい会話"
           disabled={creating}
           onClick={() => void newChat()}
         >
-          <Plus size={16} /> 新しい会話
+          <SquarePen size={16} /> 新しい会話
         </button>
-        <nav>
-          {navigation.map(([id, Icon, name]) => (
-            <button
-              key={id}
-              className={view === id ? 'selected' : ''}
-              onClick={() => navigate(id)}
-              aria-current={view === id ? 'page' : undefined}
-              title={name}
-              aria-label={name}
-            >
-              <Icon size={17} />
-              <span>{name}</span>
-              {id === 'requests' && pending.length > 0 && <b className="count">{pending.length}</b>}
-              {id === 'terminal' && activeRuns.length > 0 && <i className="live-dot" />}
-            </button>
-          ))}
-        </nav>
-        <div className="history-label">
-          会話 <span>{status?.conversations.length || 0}</span>
-        </div>
         <div className="history-search">
           <Search size={14} aria-hidden="true" />
           <input
@@ -310,17 +296,18 @@ export function App() {
             onChange={(e) => setHistoryQuery(e.target.value)}
           />
         </div>
-        <div className="conversation-list">
+        <div className="history-label">最近の会話</div>
+        <div className="conversation-list" aria-label="会話履歴">
           {status?.conversations
             .filter((c) => c.title.toLocaleLowerCase().includes(historyQuery.toLocaleLowerCase()))
             .map((c) => (
               <button
                 key={c.id}
                 className={selected === c.id ? 'current' : ''}
+                aria-current={selected === c.id && view === 'chat' ? 'page' : undefined}
                 onClick={() => choose(c.id)}
                 title={c.title}
               >
-                <MessageSquare size={13} />
                 <span>{c.title}</span>
                 {c.state === 'running' && <i className="live-dot" />}
               </button>
@@ -331,26 +318,33 @@ export function App() {
             ) && <p className="history-empty">見つかりませんでした</p>}
         </div>
         <div className="sidebar-bottom">
+          <button className="workspace-path" onClick={() => navigate('files')} title={status?.home}>
+            <FolderOpen size={15} />
+            <span>{status?.home.split('/').pop() || 'ワークスペース'}</span>
+            <ArrowUpRight size={13} />
+          </button>
           <button
             className={view === 'settings' ? 'selected' : ''}
             onClick={() => navigate('settings')}
             aria-label="設定・接続"
-            title="設定・接続"
           >
             <Settings2 size={16} /> 設定・接続
+            <span
+              className={`live-dot ${!connected || status?.stopped ? 'off' : ''}`}
+              title={
+                !connected
+                  ? 'サーバーへ再接続中'
+                  : status?.stopped
+                    ? 'すべて停止中'
+                    : 'サーバー接続済み'
+              }
+            />
           </button>
-          <div className="daemon-status">
-            <span className={`live-dot ${!connected || status?.stopped ? 'off' : ''}`} />
-            <span>
-              {!connected ? '再接続中…' : status?.stopped ? 'すべて停止中' : 'サーバー接続済み'}
-            </span>
-            <span className="mono">LOCAL</span>
-          </div>
         </div>
       </aside>
       <div className="workspace" inert={mobile && sidebar}>
         <header className="topbar">
-          <div>
+          <div className="topbar-leading">
             <button
               className="icon-button"
               ref={menu}
@@ -358,35 +352,78 @@ export function App() {
               aria-label="サイドバーを切り替え"
               aria-expanded={sidebar}
               aria-controls="app-sidebar"
-              onClick={() => setSidebar(!sidebar)}
+              onClick={() => {
+                if (toolsMenu.current) toolsMenu.current.open = false;
+                setSidebar(!sidebar);
+              }}
             >
               {sidebar ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
             </button>
-            <span className="breadcrumb">{status?.home.split('/').pop() || 'Workspace'}</span>
-            <span className="divider">/</span>
-            <strong>{currentView}</strong>
-          </div>
-          <div>
-            <span className="parent-status">
-              <i
-                className={`live-dot ${snapshot?.conversation.state === 'running' ? 'pulse' : 'off'}`}
-              />{' '}
-              {!status?.providerReady
-                ? status?.config.provider && !status.config.provider.model
-                  ? 'モデル未選択'
-                  : 'AI未接続'
-                : stateLabel[snapshot?.conversation.state || 'idle']}
-            </span>
+            {!sidebar && (
+              <button
+                className="icon-button"
+                aria-label="新しい会話"
+                title="新しい会話"
+                disabled={creating}
+                onClick={() => void newChat()}
+              >
+                <SquarePen size={18} />
+              </button>
+            )}
             <button
-              className="icon-button"
-              title="接続を確認"
-              aria-label="接続を確認"
-              onClick={() => navigate('settings')}
+              className={`chat-tab ${view === 'chat' ? 'active' : ''}`}
+              onClick={() => navigate('chat')}
+              aria-label="チャット"
+              aria-current={view === 'chat' ? 'page' : undefined}
             >
-              <CircleHelp size={17} />
+              チャット
             </button>
+            {view !== 'chat' && <span className="current-tool">{currentView}</span>}
+          </div>
+          <div className="topbar-actions">
+            <details
+              className="workspace-menu"
+              ref={toolsMenu}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && toolsMenu.current?.open) {
+                  e.preventDefault();
+                  toolsMenu.current.open = false;
+                  toolsMenu.current.querySelector('summary')?.focus();
+                }
+              }}
+            >
+              <summary aria-label="作業ツール">
+                作業ツール{pending.length > 0 && <span className="count">{pending.length}</span>}
+                <ChevronDown size={14} />
+              </summary>
+              <nav className="workspace-menu-content" aria-label="作業ツールの一覧">
+                {navigation
+                  .filter(([id]) => id !== 'chat')
+                  .map(([id, Icon, name]) => (
+                    <button
+                      key={id}
+                      className={view === id ? 'selected' : ''}
+                      onClick={() => navigate(id)}
+                      aria-current={view === id ? 'page' : undefined}
+                      aria-label={name}
+                    >
+                      <Icon size={16} />
+                      <span>{name}</span>
+                      {id === 'requests' && pending.length > 0 && (
+                        <b className="count">{pending.length}</b>
+                      )}
+                      {id === 'terminal' && activeRuns.length > 0 && <i className="live-dot" />}
+                    </button>
+                  ))}
+              </nav>
+            </details>
           </div>
         </header>
+        {!connected && status && !connectionError && (
+          <div className="connection-banner" role="status">
+            サーバーに再接続しています。入力中の内容は保持されます。
+          </div>
+        )}
         {(error || connectionError) && (
           <div className="error-banner" role="alert">
             <span>{error || connectionError}</span>
@@ -419,7 +456,7 @@ export function App() {
         ) : (
           <Suspense fallback={<div className="loading">画面を読み込み中…</div>}>
             {view === 'chat' && (
-              <Chat
+              <AgentWorkspace
                 key={snapshot.conversation.id}
                 snapshot={snapshot}
                 status={status}
@@ -442,7 +479,6 @@ export function App() {
                   </div>
                 ) : (
                   <div className="empty-panel">
-                    <Check size={25} />
                     <h3>入力依頼はありません</h3>
                     <p>回答や本人操作が必要になったら、ここに届きます。</p>
                   </div>

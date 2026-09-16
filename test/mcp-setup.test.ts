@@ -98,8 +98,7 @@ test('parent setup request inspects the host, installs a local MCP executable, d
     installCommand = `cp ${q(source)} ${q(command)} && chmod 700 ${q(command)}`;
     const { app } = createHttp(r);
     const body = JSON.stringify({
-      conversationId: r.id,
-      request: 'Install the local tools and verify an invocation.',
+      text: 'Install the local tools and verify an invocation.',
       operationId: crypto.randomUUID(),
     });
     const headers = {
@@ -107,9 +106,10 @@ test('parent setup request inspects the host, installs a local MCP executable, d
       'X-Vibe-Coder': '1',
       'Content-Type': 'application/json',
     };
-    expect((await app.request('/api/mcp/setup', { method: 'POST', headers, body })).status).toBe(
-      202,
-    );
+    expect(
+      (await app.request(`/api/conversations/${r.id}/messages`, { method: 'POST', headers, body }))
+        .status,
+    ).toBe(202);
     await eventually(() => r.store.snapshot(r.id).requests.length === 1, 10000);
     const card = r.store.snapshot(r.id).requests[0];
     await eventually(() =>

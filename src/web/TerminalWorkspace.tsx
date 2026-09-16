@@ -10,7 +10,6 @@ import {
   Pencil,
   Plus,
   Square,
-  TerminalSquare,
   Trash2,
   X,
 } from 'lucide-react';
@@ -23,10 +22,18 @@ type Run = Snapshot['runs'][number];
 const active = (run: Run) => ['running', 'stopping'].includes(run.state);
 const interactive = (run: Run) => run.kind === 'terminal' || run.kind === 'shell';
 
-export function TerminalPanel(props: { snapshot: Snapshot; action: Action }) {
+export function TerminalPanel(props: { snapshot: Snapshot; action: Action; compact?: boolean }) {
   return <Workspace key={props.snapshot.conversation.id} {...props} />;
 }
-function Workspace({ snapshot, action }: { snapshot: Snapshot; action: Action }) {
+function Workspace({
+  snapshot,
+  action,
+  compact = false,
+}: {
+  snapshot: Snapshot;
+  action: Action;
+  compact?: boolean;
+}) {
   const key = `vibe-shell-view:v1:${snapshot.conversation.id}`;
   const [view, setView] = useState<{ deck: string; selected: string; maximized: boolean }>(() => {
     try {
@@ -51,9 +58,13 @@ function Workspace({ snapshot, action }: { snapshot: Snapshot; action: Action })
   const deckOf = (run: Run) => workspace.placements[run.id] || workspace.decks[0].id;
   const available = snapshot.runs.filter((r) => interactive(r) && !workspace.hidden.includes(r.id));
   const deckRuns = available
-    .filter((r) => deckOf(r) === deck.id)
+    .filter((r) => compact || deckOf(r) === deck.id)
     .sort((a, b) => a.createdAt - b.createdAt);
-  const selected = deckRuns.find((r) => r.id === view.selected) || deckRuns[0];
+  const selected =
+    deckRuns.find((r) => r.id === view.selected) ||
+    (compact
+      ? [...deckRuns].reverse().find((r) => r.owner === 'agent' && active(r)) || deckRuns.at(-1)
+      : deckRuns[0]);
   const archived = snapshot.runs.filter((r) => workspace.hidden.includes(r.id) || !interactive(r));
   useEffect(() => {
     try {
@@ -95,10 +106,9 @@ function Workspace({ snapshot, action }: { snapshot: Snapshot; action: Action })
     perform(() => save({ ...workspace, decks, placements }));
   };
   return (
-    <section className="page terminal-page shell-workspace">
+    <section className={`page terminal-page shell-workspace ${compact ? 'shell-compact' : ''}`}>
       <header className="shell-heading">
         <div>
-          <span className="shell-eyebrow">WORKSPACE / SHELL</span>
           <h1>ターミナル</h1>
         </div>
         <div className="shell-heading-actions">
@@ -274,6 +284,16 @@ function Workspace({ snapshot, action }: { snapshot: Snapshot; action: Action })
             ))}
           </select>
         </label>
+        {compact && (
+          <button
+            aria-label="シェルを開く"
+            title="シェルを開く"
+            disabled={busy || snapshot.stopped}
+            onClick={() => create({ mode: 'pty' })}
+          >
+            <Plus size={15} />
+          </button>
+        )}
         <span className="shell-count">
           {deckRuns.filter(active).length} 実行中 / {deckRuns.length} 端末
         </span>
@@ -289,19 +309,18 @@ function Workspace({ snapshot, action }: { snapshot: Snapshot; action: Action })
       </div>
       {!deckRuns.length && (
         <div className="shell-empty">
-          <TerminalSquare size={30} />
           <h2>{deck.name}</h2>
           <p>ターミナルを開いて作業を始める</p>
           <small>端末は画面を切り替えても動き続けます。</small>
         </div>
       )}
       <div
-        className={`shell-grid ${view.maximized ? 'shell-single' : ''} ${deckRuns.length === 1 ? 'shell-one' : ''}`}
+        className={`shell-grid ${view.maximized || compact ? 'shell-single' : ''} ${deckRuns.length === 1 ? 'shell-one' : ''}`}
       >
         {available
           .sort((a, b) => a.createdAt - b.createdAt)
           .map((run) => {
-            const inDeck = deckOf(run) === deck.id,
+            const inDeck = compact || deckOf(run) === deck.id,
               focused = selected?.id === run.id;
             return (
               <article

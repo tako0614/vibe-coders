@@ -1,5 +1,6 @@
 // Manual browser verification with isolated state and no external model calls.
 import { fixture } from '../helpers';
+import { activityPreview } from './activity-preview';
 import { createHttp } from '../../src/server/http';
 import { previewDesktop } from './desktop';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,11 @@ const port = Number(process.env.VIBE_CODER_TEST_PORT || 3100);
 const { app, websocket } = createHttp(runtime, {
   devOrigin: process.env.VIBE_CODER_TEST_ORIGIN || 'http://127.0.0.1:5173',
 });
+if (process.env.VIBE_CODER_TEST_ACTIVITY === '1') {
+  app.post('/api/test/activity', async (c) =>
+    c.json(activityPreview(runtime, String((await c.req.json()).scenario))),
+  );
+}
 const closeDesktop =
   process.env.VIBE_CODER_TEST_DESKTOP === '1' ? await previewDesktop(runtime) : undefined;
 const modelServer = process.env.VIBE_CODER_TEST_MODEL_PORT

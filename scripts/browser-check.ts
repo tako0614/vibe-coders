@@ -61,22 +61,17 @@ const until = async (expression: string, timeout = 10000) => {
   }
 };
 const clickText = async (text: string) => {
-  if (
-    [
-      'チャット',
-      'ターミナル',
-      '予定',
-      'ファイル',
-      '記憶',
-      '入力依頼',
-      'デスクトップ',
-      '設定・接続',
-      '新しい会話',
-    ].includes(text)
-  ) {
+  await until(`!!document.querySelector('.app-shell')`);
+  if (['設定・接続', '新しい会話'].includes(text)) {
     await evaluate(
       `(()=>{ if (innerWidth<=760 && document.querySelector('.app-shell.sidebar-hidden')) document.querySelector('button[aria-label="サイドバーを切り替え"]')?.click(); })()`,
     );
+  }
+  if (['ターミナル', '予定', 'ファイル', '記憶', '入力依頼', 'デスクトップ'].includes(text)) {
+    await evaluate(
+      `(()=>{const menu=document.querySelector('.workspace-menu');if(!menu.open)menu.querySelector('summary').click()})()`,
+    );
+    await until(`document.querySelector('.workspace-menu')?.open`);
   }
   await until(
     `Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes(${JSON.stringify(text)}))`,
@@ -88,7 +83,7 @@ const clickText = async (text: string) => {
 const setValue = async (selector: string, value: string) => {
   await until(`!!document.querySelector(${JSON.stringify(selector)})`);
   return evaluate(
-    `(()=>{const el=document.querySelector(${JSON.stringify(selector)}); const proto=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+    `(()=>{const el=document.querySelector(${JSON.stringify(selector)}); const proto=el instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:el instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()`,
   );
 };
 const screenshot = async (name: string) => {
@@ -161,7 +156,7 @@ try {
   await screenshot('desktop');
   await setValue('.composer textarea', '送信済みの下書きを残さない');
   await evaluate(`document.querySelector('button[aria-label="メッセージを送信"]').click()`);
-  await until(`!!document.querySelector('.wait-note')`);
+  await until(`!!document.querySelector('.execution-status')`);
   await until(
     `new Promise(done => { const r = indexedDB.open('vibe-coders-drafts'); r.onsuccess = () => { const db = r.result, g = db.transaction('drafts').objectStore('drafts').getAll(); g.onsuccess = () => { done(!g.result.some(d => d.text === '送信済みの下書きを残さない')); db.close(); }; }; })`,
   );
@@ -444,7 +439,44 @@ try {
   await clickText('設定・接続');
   await until(`!!document.querySelector('.provider-picker')`);
   await clickText('MCP');
-  await until(`document.querySelector('textarea[name="request"]')?.checkVisibility()`);
+  await until(`!!document.querySelector('.mcp-settings')`);
+  if (await evaluate(`!!document.querySelector('textarea[name="request"]')`))
+    throw Error('AI setup form remains in MCP settings');
+  await clickText('接続を追加');
+  await setValue('.mcp-connection-form input[name="name"]', 'manual-tools');
+  await setValue('.mcp-connection-form input[name="command"]', process.execPath);
+  await setValue(
+    '.mcp-connection-form input[name="args"]',
+    JSON.stringify([process.cwd() + '/test/fixtures/mcp-server.ts']),
+  );
+  if (await evaluate(`!!document.querySelector('.mcp-connection-form input[name="url"]')`))
+    throw Error('HTTP field visible for stdio');
+  await evaluate(`document.querySelector('.mcp-connection-form').requestSubmit()`);
+  await until(
+    `document.querySelector('[data-mcp-name="manual-tools"]')?.textContent.includes('接続済み')`,
+  );
+  await evaluate(
+    `Array.from(document.querySelectorAll('[data-mcp-name="manual-tools"] button')).find(b=>b.textContent==='編集').click()`,
+  );
+  await until(`document.querySelector('.mcp-connection-form input[name="name"]')?.readOnly`);
+  await setValue('.mcp-connection-form input[name="args"]', 'invalid');
+  await evaluate(`document.querySelector('.mcp-connection-form').requestSubmit()`);
+  await until(`!!document.querySelector('.error-banner')`);
+  await setValue(
+    '.mcp-connection-form input[name="args"]',
+    JSON.stringify([process.cwd() + '/test/fixtures/mcp-server.ts']),
+  );
+  await evaluate(`document.querySelector('.mcp-connection-form').requestSubmit()`);
+  await until(
+    `!document.querySelector('.mcp-connection-form') && document.querySelector('[data-mcp-name="manual-tools"]')?.textContent.includes('接続済み')`,
+  );
+  await clickText('接続を追加');
+  await setValue('.mcp-connection-form select[name="transport"]', 'http');
+  await until(
+    `!!document.querySelector('.mcp-connection-form input[name="url"]') && !document.querySelector('.mcp-connection-form input[name="command"]')`,
+  );
+  await screenshot('mcp-http-form');
+  await clickText('キャンセル');
   if (await evaluate(`document.body.textContent.includes('普段のChromeに接続')`))
     throw new Error('Browser-specific configuration is still shown.');
   await until(`!!document.querySelector('.mcp-install')`);
@@ -637,13 +669,15 @@ try {
     { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 },
     sessionId,
   );
-  await until(`document.querySelector('.daemon-status')?.textContent.includes('再接続中')`);
+  await until(`!!document.querySelector('.connection-banner')`);
   await command(
     'Network.emulateNetworkConditions',
     { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 },
     sessionId,
   );
-  await until(`document.querySelector('.daemon-status')?.textContent.includes('サーバー接続済み')`);
+  await until(
+    `!document.querySelector('.connection-banner') && !!document.querySelector('.sidebar-bottom [title=\"サーバー接続済み\"]')`,
+  );
   await command(
     'Network.emulateNetworkConditions',
     { offline: false, latency: 800, downloadThroughput: -1, uploadThroughput: -1 },
@@ -736,6 +770,147 @@ try {
   if (dimensions.body > dimensions.width)
     throw new Error(`Horizontal overflow: ${JSON.stringify(dimensions)}`);
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join(', ')}`);
+  if (process.env.VIBE_CODER_TEST_ACTIVITY === '1') {
+    const scene = async (scenario: string) => {
+      await evaluate(
+        `(async()=>{ const r=await fetch('/api/test/activity',{method:'POST',headers:{'X-Vibe-Coder':'1','Content-Type':'application/json'},body:JSON.stringify({scenario:${JSON.stringify(scenario)}})});if(!r.ok)throw Error('Activity fixture failed');const c=await r.json(),status=await(await fetch('/api/status')).json();localStorage.setItem('vibe-conversation:'+status.home,c.id);})()`,
+      );
+      await command('Page.reload', {}, sessionId);
+      await until(`!!document.querySelector('.composer')`);
+    };
+    await command(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
+      sessionId,
+    );
+    await scene('workspace');
+    await until(
+      `!!document.querySelector('.agent-workbench .terminal-widget') && document.querySelector('.execution-status strong')?.textContent==='シェルで作業中'`,
+    );
+    const workingRun = await evaluate(
+      `document.querySelector('.agent-workbench [data-run-id]').dataset.runId`,
+    );
+    await until(`document.querySelector('.agent-workbench').textContent.includes('AIが操作中')`);
+    await setValue('.composer textarea', 'このまま作業を続けて');
+    await screenshot('workspace-shell');
+    if (process.env.VIBE_CODER_TEST_DESKTOP === '1') {
+      await evaluate(`document.querySelectorAll('.workbench-heading [role="tab"]')[1].click()`);
+      await until(
+        `document.querySelector('.agent-workbench .desktop-preview img')?.complete && document.querySelector('.agent-workbench .desktop-preview img')?.naturalWidth > 0`,
+        15000,
+      );
+      await screenshot('workspace-screen');
+      await clickText('画面を開いて手動操作');
+      await until(`!!document.querySelector('.agent-workbench .desktop-surface canvas')`, 15000);
+      await clickText('安全な画面でAIに返す');
+      await until(`!!document.querySelector('.agent-workbench .desktop-preview img')`, 15000);
+      await evaluate(`document.querySelectorAll('.workbench-heading [role="tab"]')[0].click()`);
+      await until(
+        `document.querySelector('.agent-workbench [data-run-id]')?.dataset.runId === ${JSON.stringify(workingRun)}`,
+      );
+    }
+    await evaluate(`document.querySelector('button[aria-label="作業画面を閉じる"]').click()`);
+    await until(`!document.querySelector('.agent-workbench')`);
+    await Bun.sleep(500);
+    if (await evaluate(`!!document.querySelector('.agent-workbench')`))
+      throw Error('Dismissed workbench reopened without new user turn');
+    await evaluate(`document.querySelector('.work-surfaces button').click()`);
+    await until(
+      `document.querySelector('.agent-workbench [data-run-id]')?.dataset.runId === ${JSON.stringify(workingRun)} && document.querySelector('.composer textarea').value==='このまま作業を続けて'`,
+    );
+    await command(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+      sessionId,
+    );
+    await screenshot('workspace-mobile');
+    if (await evaluate(`document.documentElement.scrollWidth > innerWidth`))
+      throw Error('Working surfaces overflow on mobile');
+    await clickText('一時停止');
+    await until(`document.querySelector('.execution-status')?.dataset.state==='paused'`);
+    if (
+      !(await evaluate(
+        `fetch('/api/runs/'+${JSON.stringify(workingRun)}).then(r=>r.json()).then(r=>r.state==='running')`,
+      ))
+    )
+      throw Error('Pausing the parent killed its shell');
+    await evaluate(
+      `fetch('/api/runs/'+${JSON.stringify(workingRun)}+'/stop',{method:'POST',headers:{'X-Vibe-Coder':'1','Content-Type':'application/json'},body:'{}'})`,
+    );
+    await command(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
+      sessionId,
+    );
+    await scene('running');
+    await until(
+      `document.querySelector('.execution-status strong')?.textContent==='シェルで作業中'`,
+    );
+    if (
+      await evaluate(
+        `document.querySelectorAll('.activity-group').length!==1 || Array.from(document.querySelectorAll('.tool-details pre')).some(el=>el.checkVisibility())`,
+      )
+    )
+      throw Error('Tool operations are not grouped and collapsed');
+    if (
+      await evaluate(
+        `!!document.querySelector('.brand-icon,.message-avatar,.welcome-repo,.repo-avatar')`,
+      )
+    )
+      throw Error('Decorative branding remains');
+    await screenshot('activity-running');
+    await evaluate(`document.querySelector('.activity-group > summary').click()`);
+    await until(`document.querySelectorAll('.activity-group[open] .tool-card').length===3`);
+    await screenshot('activity-expanded');
+    await command(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+      sessionId,
+    );
+    await evaluate(`document.querySelector('.activity-group > summary').click()`);
+    await screenshot('activity-mobile');
+    await clickText('一時停止');
+    await until(`document.querySelector('.execution-status')?.dataset.state==='paused'`);
+    if (await evaluate(`!!document.querySelector('.execution-status .spin')`))
+      throw Error('Paused UI still spins');
+    await screenshot('activity-paused');
+    await scene('input');
+    await until(
+      `document.querySelector('.execution-status strong')?.textContent==='入力を待っています'`,
+    );
+    await until(`!!document.querySelector('.request-card [name="branch"]')`);
+    await screenshot('activity-input');
+    await scene('error');
+    await until(`document.querySelector('.execution-status')?.dataset.state==='error'`);
+    if (await evaluate(`document.querySelector('.execution-error pre').checkVisibility()`))
+      throw Error('Raw error details visible by default');
+    await screenshot('activity-error');
+    await scene('thinking');
+    await until(`document.querySelector('.execution-status strong')?.textContent==='考えています'`);
+    await screenshot('activity-thinking');
+    await scene('streaming');
+    await until(
+      `document.querySelector('.execution-status strong')?.textContent==='回答を作成しています'`,
+    );
+    await screenshot('activity-streaming');
+    await scene('completed');
+    await until(
+      `document.querySelector('.activity-group > summary')?.textContent.includes('3件の操作を完了') && !document.querySelector('.execution-status')`,
+    );
+    await screenshot('activity-completed');
+    await evaluate(`document.querySelector('.workspace-menu > summary').click()`);
+    await until(`document.querySelector('.workspace-menu')?.open`);
+    await screenshot('mobile-tools');
+    await command(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+      sessionId,
+    );
+    await until(
+      `!document.querySelector('.workspace-menu').open && document.activeElement===document.querySelector('.workspace-menu > summary')`,
+    );
+  }
+  if (errors.length) throw new Error(`Browser exceptions: ${errors.join(', ')}`);
   console.log(
     JSON.stringify({
       passed: true,
@@ -758,8 +933,13 @@ try {
           : []),
         'secret form',
         'mobile layout',
+        ...(process.env.VIBE_CODER_TEST_ACTIVITY === '1'
+          ? [
+              'working/thinking/streaming/input/error/completed states, grouped tools, real pause API, mobile tool menu and Escape',
+            ]
+          : []),
         'mobile drawer/search/Escape, picker bounds and focus, composer auto-height, selected conversation survives reload',
-        'MCP setup and provider-independent npm installation form',
+        'manual MCP add/edit/reconnect, transport-specific fields, invalid arguments and provider-independent npm installation form',
         ...(process.env.VIBE_CODER_TEST_AUTH === '1'
           ? [
               'Codex login card, private code removal, queued continuation and parent subscription selection',

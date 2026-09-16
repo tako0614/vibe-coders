@@ -7,15 +7,13 @@ import {
   Check,
   ChevronRight,
   Copy,
-  FileCode2,
   Inbox,
   LoaderCircle,
   LockKeyhole,
   Paperclip,
-  Pause,
-  Play,
   Square,
   SquareTerminal,
+  Monitor,
   X,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
@@ -23,8 +21,9 @@ import { api, operationId, stateLabel, time, type Snapshot, type Status } from '
 import type { Action, View } from './App';
 import type { HumanRequest } from '../server/db/schema';
 import { CodexLogin } from './CodexLogin';
-import type { ImagePart } from '../shared/contracts';
-import { ActivityHistory, ToolActivity } from './Activity';
+import type { ImagePart, ToolCall } from '../shared/contracts';
+import { ActivityHistory, ToolActivityGroup, ExecutionStatus } from './Activity';
+import { collectActivities, type WorkSurface } from './activity-state';
 import { ChatModelPicker } from './ChatModelPicker';
 
 export type ComposerDraft = { text: string; images: ImagePart[] };
@@ -227,12 +226,16 @@ export function Chat({
   action,
   onView,
   drafts,
+  onWorkspace,
+  surface,
 }: {
   snapshot: Snapshot;
   status: Status;
   action: Action;
   onView: (view: View) => void;
   drafts: Map<string, ComposerDraft>;
+  onWorkspace: (surface: WorkSurface) => void;
+  surface: WorkSurface | null;
 }) {
   const persisted = useComposerDraft(
     `${status.config.username}:${status.home}:${s.conversation.id}`,
@@ -272,16 +275,25 @@ export function Chat({
   const activities = s.messages.filter(
     (m) => m.body.role === 'system' || m.id.startsWith('event-'),
   );
-  const failure =
-    s.conversation.state === 'error'
-      ? [...s.messages].reverse().find((m) => m.body.role === 'system')?.body.content
-      : undefined;
+  const toolActivities = collectActivities(s);
+  const entries: (
+    | { kind: 'message'; message: Snapshot['messages'][number] }
+    | { kind: 'tools'; calls: ToolCall[] }
+  )[] = [];
+  for (const message of messages) {
+    if (message.body.content || message.body.images?.length || message.body.role === 'user')
+      entries.push({ kind: 'message', message });
+    if (message.body.toolCalls?.length) {
+      const previous = entries.at(-1);
+      if (previous?.kind === 'tools') previous.calls.push(...message.body.toolCalls);
+      else entries.push({ kind: 'tools', calls: [...message.body.toolCalls] });
+    }
+  }
   const pending = s.requests.filter((r) => r.state === 'pending' || r.state === 'processing');
   useEffect(() => {
     if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
     else setShowLatest(true);
   }, [s.messages.length, s.draft, pending.length]);
-  const retry = () => action(() => api(`/conversations/${s.conversation.id}/retry`, 'POST', {}));
   const send = async () => {
     if (busy || status.stopped || (!text.trim() && !images.length)) return;
     setBusy(true);
@@ -321,135 +333,96 @@ export function Chat({
       >
         {!messages.length ? (
           <div className="welcome">
-            <div className="welcome-repo">
-              <SquareTerminal size={22} />
-              <span>{status.home.split('/').pop()}</span>
-            </div>
-            <h1>何をつくりますか？</h1>
-            <p>
-              {status.providerReady
-                ? 'コードの調査から実装、動作確認まで。やりたいことを伝えてください。'
-                : status.config.provider || status.codex?.subscriptionReady
-                  ? 'モデルを選んで、作業を始めましょう。'
-                  : 'Codexのサブスクリプション、またはAPIキーで接続できます。'}
-            </p>
+            <h1>何から始めますか？</h1>
             {!status.providerReady &&
               !status.codex?.subscriptionReady &&
               !status.config.provider && (
-                <button className="primary welcome-connect" onClick={() => onView('settings')}>
-                  AIを接続する <ArrowUpRight size={15} />
+                <button className="welcome-connect" onClick={() => onView('settings')}>
+                  CodexまたはAPIを接続する <ArrowUpRight size={14} />
                 </button>
               )}
           </div>
         ) : (
           <div className="message-list">
-            {messages.map((m) => (
-              <article className={`message ${m.body.role}`} key={m.id}>
-                <div className="message-meta">
-                  <span className={`message-avatar ${m.body.role}`}>
-                    {m.body.role === 'assistant' ? (
-                      <SquareTerminal size={13} />
-                    ) : m.body.role === 'system' ? (
-                      'i'
-                    ) : (
-                      'Y'
-                    )}
-                  </span>
-                  <strong>
-                    {m.body.role === 'assistant'
-                      ? 'Vibe Coders'
+            {entries.map((entry) => {
+              if (entry.kind === 'tools')
+                return (
+                  <ToolActivityGroup
+                    key={entry.calls[0].id}
+                    calls={entry.calls}
+                    activities={toolActivities}
+                  />
+                );
+              const m = entry.message;
+              return (
+                <article
+                  className={`message ${m.body.role}`}
+                  key={m.id}
+                  aria-label={
+                    m.body.role === 'assistant'
+                      ? '回答'
                       : m.body.role === 'system'
                         ? 'システム'
-                        : m.body.content.startsWith('[Runtime event:')
-                          ? '実行イベント'
-                          : 'あなた'}
-                  </strong>
-                  <time>
-                    {new Date(m.createdAt).toLocaleTimeString('ja', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </time>
-                </div>
-                <div className="message-content">
-                  <Markdown>{m.body.content}</Markdown>
-                  {m.body.images?.map((image, index) => (
-                    <img
-                      className="message-image"
-                      src={image.image_url.url}
-                      key={index}
-                      alt="添付画像"
-                    />
-                  ))}
-                  {m.body.toolCalls?.map((call) => (
-                    <ToolActivity key={call.id} call={call} snapshot={s} />
-                  ))}
-                </div>
-                {m.body.role === 'assistant' && m.body.content && (
-                  <div className="message-actions">
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label="回答をコピー"
-                      title={copied === m.id ? 'コピーしました' : '回答をコピー'}
-                      onClick={() =>
-                        void action(async () => {
-                          if (navigator.clipboard?.writeText)
-                            await navigator.clipboard.writeText(m.body.content);
-                          else {
-                            const field = document.createElement('textarea');
-                            field.value = m.body.content;
-                            field.style.position = 'fixed';
-                            field.style.opacity = '0';
-                            document.body.append(field);
-                            field.select();
-                            const ok = document.execCommand('copy');
-                            field.remove();
-                            if (!ok)
-                              throw new Error(
-                                'コピーできませんでした。テキストを選択してコピーしてください。',
-                              );
-                          }
-                          setCopied(m.id);
-                          clearTimeout(copyTimer.current);
-                          copyTimer.current = setTimeout(() => setCopied(''), 2000);
-                        })
-                      }
-                    >
-                      {copied === m.id ? <Check size={15} /> : <Copy size={15} />}
-                    </button>
+                        : 'あなたのメッセージ'
+                  }
+                >
+                  {m.body.role === 'system' && <div className="message-system-label">システム</div>}
+                  <div className="message-content">
+                    <Markdown>{m.body.content}</Markdown>
+                    {m.body.images?.map((image, index) => (
+                      <img
+                        className="message-image"
+                        src={image.image_url.url}
+                        key={index}
+                        alt="添付画像"
+                      />
+                    ))}
                   </div>
-                )}
-              </article>
-            ))}
+                  {m.body.role === 'assistant' && m.body.content && (
+                    <div className="message-actions">
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="回答をコピー"
+                        title={copied === m.id ? 'コピーしました' : '回答をコピー'}
+                        onClick={() =>
+                          void action(async () => {
+                            if (navigator.clipboard?.writeText)
+                              await navigator.clipboard.writeText(m.body.content);
+                            else {
+                              const field = document.createElement('textarea');
+                              field.value = m.body.content;
+                              field.style.position = 'fixed';
+                              field.style.opacity = '0';
+                              document.body.append(field);
+                              field.select();
+                              const ok = document.execCommand('copy');
+                              field.remove();
+                              if (!ok)
+                                throw new Error(
+                                  'コピーできませんでした。テキストを選択してコピーしてください。',
+                                );
+                            }
+                            setCopied(m.id);
+                            clearTimeout(copyTimer.current);
+                            copyTimer.current = setTimeout(() => setCopied(''), 2000);
+                          })
+                        }
+                      >
+                        {copied === m.id ? <Check size={15} /> : <Copy size={15} />}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
             {s.draft && (
-              <article className="message assistant">
-                <div className="message-meta">
-                  <span className="message-avatar assistant">
-                    <SquareTerminal size={13} />
-                  </span>
-                  <strong>Vibe Coders</strong>
-                  <LoaderCircle size={13} className="spin" />
-                </div>
+              <article className="message assistant" aria-label="回答を作成中" aria-busy="true">
                 <div className="message-content">
                   <Markdown>{s.draft}</Markdown>
                 </div>
               </article>
             )}
-          </div>
-        )}
-        {failure && messages.length > 0 && (
-          <div className="chat-error" role="alert">
-            <strong>作業が止まりました</strong>
-            <p>{failure}</p>
-            <div>
-              <button onClick={() => (status.providerReady ? void retry() : onView('settings'))}>
-                {status.providerReady ? 'もう一度試す' : 'AI接続を設定'}
-              </button>
-              <button className="text-button" onClick={() => onView('settings')}>
-                設定を確認
-              </button>
-            </div>
           </div>
         )}
         {pending.length > 0 && (
@@ -481,18 +454,30 @@ export function Chat({
             最新へ
           </button>
         )}
-        {!status.providerReady && messages.length > 0 && (
-          <div className="wait-note">
-            {status.config.provider && !status.config.provider.model
-              ? '入力欄の「モデルを選択」からモデルを選ぶと、作業を始めます。'
-              : 'メッセージは保存済みです。モデルを選ぶか、接続設定を確認してください。'}
+        {messages.length > 0 && (
+          <div className="work-surfaces" aria-label="作業環境">
+            <button aria-expanded={surface === 'terminal'} onClick={() => onWorkspace('terminal')}>
+              <SquareTerminal size={15} />
+              シェル
+              <span>
+                {s.runs.filter(
+                  (r) => ['terminal', 'shell'].includes(r.kind) && r.state === 'running',
+                ).length || ''}
+              </span>
+            </button>
+            <button aria-expanded={surface === 'desktop'} onClick={() => onWorkspace('desktop')}>
+              <Monitor size={15} />
+              画面
+            </button>
           </div>
         )}
-        {s.conversation.wait && (
-          <div className="wait-note">
-            <ClockIcon /> {s.conversation.wait.reason}
-          </div>
-        )}
+        <ExecutionStatus
+          snapshot={s}
+          providerReady={status.providerReady}
+          activities={toolActivities}
+          action={action}
+          onView={onView}
+        />
         <form
           className="composer"
           onSubmit={(e) => {
@@ -520,7 +505,7 @@ export function Chat({
             ref={area}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="やりたいことを伝えてください…"
+            placeholder="メッセージを入力…"
             aria-label="エージェントへのメッセージ"
             rows={1}
             maxLength={64000}
@@ -553,32 +538,6 @@ export function Chat({
               />
             </div>
             <div>
-              {['running', 'paused', 'error', 'waiting'].includes(s.conversation.state) && (
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={
-                    s.conversation.paused || s.conversation.state === 'error'
-                      ? '作業を再開'
-                      : '作業を一時停止'
-                  }
-                  onClick={() =>
-                    s.conversation.state === 'error'
-                      ? void retry()
-                      : void action(() =>
-                          api(`/conversations/${s.conversation.id}/pause`, 'POST', {
-                            paused: !s.conversation.paused,
-                          }),
-                        )
-                  }
-                >
-                  {s.conversation.paused || s.conversation.state === 'error' ? (
-                    <Play size={15} />
-                  ) : (
-                    <Pause size={15} />
-                  )}
-                </button>
-              )}
               <button
                 className="send-button"
                 aria-label="メッセージを送信"
@@ -640,44 +599,28 @@ export function Chat({
           }}
         />
         {!messages.length && (
-          <div className="suggestions">
+          <div className="suggestions" aria-label="会話のヒント">
             {[
-              [
-                'リポジトリを知る',
-                'このリポジトリの構成と、次に取り組むとよさそうなことを調べて。',
-                FileCode2,
-              ],
-              [
-                '開発環境を整える',
-                'このプロジェクトの実行方法を確認して、必要な環境を整えて。',
-                SquareTerminal,
-              ],
-            ].map(([label, prompt, Icon]) => {
-              const Glyph = Icon as typeof FileCode2;
-              return (
-                <button
-                  key={String(label)}
-                  onClick={() => {
-                    setText(String(prompt));
-                    area.current?.focus();
-                  }}
-                >
-                  <Glyph size={18} />
-                  <span>{String(label)}</span>
-                  <ArrowUpRight size={15} />
-                </button>
-              );
-            })}
+              ['コードを調べる', 'このリポジトリの構成と、次に取り組むとよさそうなことを調べて。'],
+              ['開発環境を整える', 'このプロジェクトの実行方法を確認して、必要な環境を整えて。'],
+              ['変更をレビュー', '現在の変更を確認して、不具合や改善すべき点をレビューして。'],
+            ].map(([label, prompt]) => (
+              <button
+                key={label}
+                onClick={() => {
+                  setText(prompt);
+                  area.current?.focus();
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
         <div className="composer-footnote">
-          <span>
-            {s.conversation.state === 'running' ? '実行中でも追加の指示を送れます' : 'Vibe Coders'}
-            <button onClick={() => onView('settings')}>
-              接続を管理 <ArrowUpRight size={11} />
-            </button>
-          </span>
-          <span>Enterで送信 · Shift + Enterで改行</span>
+          {s.conversation.state === 'running'
+            ? '実行中も追加の指示を送れます'
+            : 'Enterで送信 · Shift + Enterで改行'}
         </div>
       </div>
     </main>

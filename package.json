@@ -1,6 +1,6 @@
 {
   "name": "vibe-coders",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tako0614/vibe-coders.git"
@@ -32,8 +32,6 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@fontsource-variable/dm-sans": "5.3.0",
-    "@fontsource-variable/noto-sans-jp": "5.3.0",
     "@inquirer/prompts": "8.7.2",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@novnc/novnc": "1.7.0",

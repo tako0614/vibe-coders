@@ -32,6 +32,7 @@ import { searchWeb, extractPdf } from './content';
 import { shellSchema } from '../shared/shell';
 import { CodexAuth } from './codex-auth';
 import { environmentSchema, inspectEnvironment, environmentInstructions } from './environment';
+import { settingsUpdateSchema, updateSettings } from './settings';
 
 const idSchema = z.object({ id: z.string() });
 export function extractImages(value: unknown): { value: unknown; images: ImagePart[] } {
@@ -700,6 +701,12 @@ export class Agent {
           desktop: this.desktop.status(),
           codex: this.codex.status(),
         }),
+      ),
+      tool(
+        'settings_update',
+        'Update nonsecret provider/model, desktop, search or retention settings with the revision from connections_list. Provider changes apply from the next model call and are blocked while another conversation runs. Existing credentials can be reused only for the same endpoint; new secrets require human_request. Does not change desktop ownership or web login/listen settings. MCP connections use mcp_add/update/remove.',
+        settingsUpdateSchema,
+        (a) => updateSettings(this, a, conversationId),
       ),
       tool(
         'environment_inspect',

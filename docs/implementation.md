@@ -19,7 +19,7 @@
 | MCP OAuth      | SDKのdiscovery・client登録、事前登録クライアントID/シークレット・スコープ、PKCE・トークン保存・更新。期限と接続版に結び付く一回限りのstate、コールバック後の接続再開                                                      |
 | ファイル・実行 | WebUIの差分・編集・復元、範囲読取・glob・内容照合つき編集、shell、継続PTY、Unicode/TUI現在画面、手動操作への引き継ぎ                                                                                |
 | CLI実行 | 共通shellのPTY / pipe、継続入力・EOF・待機・停止、デッキ・グリッド・最大化・モバイル切り替え。Codex / Claudeも通常のCLIとして起動 |
-| MCP導入        | AI不要のnpm導入・バージョン固定・discovery、認証入力後の再接続。汎用の導入依頼、環境・実行ファイルの確認、親からの追加・更新・再接続・切断・削除。接続は独立runで行い、実ツールを次の推論へ反映。Chromeは通常アプリとMCPを導入する利用例   |
+| MCP導入        | AI不要のnpm導入・バージョン固定・discovery、認証入力後の再接続。手動の追加・編集・認証、チャットからの導入依頼、環境・実行ファイルの確認、親からの追加・更新・再接続・切断・削除。接続は独立runで行い、実ツールを次の推論へ反映。Chromeは通常アプリとMCPを導入する利用例   |
 | Codex親モデル  | サブスク認証によるResponses接続。親ループ・MCP・予定・Atomは本アプリが所有。ツールIDとストリーム終端の照合、暗号化コンテキスト継続、画像入力、401時の一度の更新、429で停止 |
 | モデル選択・認証 | チャット入力欄のpickerでCodex・OpenRouter・OpenAI互換APIのモデルを検索・選択・直接入力。接続設定はモデル未選択でも保存可能。Codexの保存済みauth.jsonを自動利用。必要な場合のコード／ブラウザ認証、親の認証待ちからの再開、取消・全停止・再起動時の処理 |
 | GUI            | Linux X11直接操作とVNC経由。画面取得・クリック・キー・Unicode文字・スクロール・ドラッグ。同じVNCをWebUIでも利用                                                            |
@@ -34,14 +34,14 @@
 
 外部プロセスやネットワークの副作用にexactly-onceを保証しません。資格情報と暗号鍵は同じOSユーザーがアクセス可能です。任意shellから秘密を隔離するサンドボックスとしては扱いません。管理下の手動操作区間はAIの観測を停止しますが、他のOSプロセスによる観測を制御するものではありません。
 
-0.2.1のチャット内モデル選択・UI改善・Codex一覧取得の修正は [検証記録](debugging-0.2.1.md)。0.2.0のshell共通化とデッキは [仕様](shell-workspace.md)・[検証記録](debugging-0.2.0.md)。0.1.8の会話要約・ファイル編集/復元・下書き保存・子への追加指示・MCP導入改善は [検証記録](debugging-0.1.8.md)。0.1.7の端末・自動デスクトップ改善は [検証記録](debugging-0.1.7.md)。0.1.6での不具合修正と実画面の検証範囲は [動作修正と画面整理](debugging-0.1.6.md) に記録しています。0.1.8検証時の実アカウントは推論時に429（利用枠不足）を返したため、以下の実Codexでの完了実績は先行版で確認したものです。
+0.2.2のチャット横のシェル・共有画面、手動MCP設定、AI設定ツールは [検証記録](debugging-0.2.2.md)。0.2.1のチャット内モデル選択・UI改善・Codex一覧取得の修正は [検証記録](debugging-0.2.1.md)。0.2.0のshell共通化とデッキは [仕様](shell-workspace.md)・[検証記録](debugging-0.2.0.md)。0.1.8の会話要約・ファイル編集/復元・下書き保存・子への追加指示・MCP導入改善は [検証記録](debugging-0.1.8.md)。0.1.7の端末・自動デスクトップ改善は [検証記録](debugging-0.1.7.md)。0.1.6での不具合修正と実画面の検証範囲は [動作修正と画面整理](debugging-0.1.6.md) に記録しています。0.1.8検証時の実アカウントは推論時に429（利用枠不足）を返したため、以下の実Codexでの完了実績は先行版で確認したものです。
 
 ## この環境で確認したこと
 
 - 端末のWebSocket入出力、切断後の差分再取得、操作権の失効、手動区間のAI画面からの除去。実Chromeの入力から表示まで12回の測定で中央値9.8ms・最大17.2ms（同じホストのLAN URL）。
 - 手動設定なしのXvfb・認証付きVNC起動、既存のX11画面への接続、AIの観測IDを消費しないプレビュー、Chrome起動、終了・異常終了後のプロセス回収。
 
-- 型検査、Bunの76テスト、Reactビルド、Honoによる認証付き画面配信（0.2.1）。
+- 型検査、Bunの84テスト、Reactビルド、Honoによる認証付き画面配信（0.2.1）。
 - CLI設定・init・起動・終了・二重起動拒否。配布用bundleを別ディレクトリへ移して、元のnode_modulesなしで起動・migration・認証・画面配信。npm tarballからのインストール、実行コマンド、Home初期化。
 - `vibe-coders@0.1.8` をnpmへ公開。公開tarballの内容一致と、公開registryからのインストール・実行コマンド・Home初期化を確認。
 - HTTPのLANアドレスで本番WebUIを開き、`crypto.randomUUID` が利用できない環境で入力回答が送れないことを0.1.4で再現。0.1.5ではチャット・入力回答・MCP導入依頼がサーバーへ届くことを実Chromeで確認。
@@ -105,3 +105,9 @@ Codex認証UIのfixture検証はpreviewとbrowser-checkの両方に `VIBE_CODER_
 - [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp)
 - [RFB protocol](https://github.com/rfbproto/rfbproto/blob/master/rfbproto.rst)、[noVNC](https://novnc.com/noVNC/docs/API.html)
 - [SearXNG Search API](https://docs.searxng.org/dev/search_api.html)、[Brave Search](https://api-dashboard.search.brave.com/app/documentation/web-search/get-started)
+
+## 設定の操作経路
+
+MCP画面はAI不要の手動フォームです。ローカルコマンド / HTTPを選んで追加・編集し、認証情報は専用入力から保存します。npm導入も手動操作できます。旧 `/api/mcp/setup` は削除し、AIへの依頼には通常の会話送信APIを使います。
+
+親AIには `connections_list`、`mcp_add/update/reconnect/disconnect/remove` と `settings_update` を公開しています。`settings_update` は設定のrevisionを指定してモデル接続・検索・保存期間・デスクトップを変更し、WebUIと同じ更新処理を通ります。モデル変更は次の推論から反映し、他の会話が実行中なら拒否します。接続先が変わった場合、前のAPIキーを流用しません。資格情報とWebログイン・公開アドレスはこのツールの変更対象外です。デスクトップ設定を変えても人間からAIへ操作権を移しません。
