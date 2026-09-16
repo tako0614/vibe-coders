@@ -1,4 +1,5 @@
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Config, initHome } from '../src/server/config';
@@ -49,7 +50,8 @@ export async function fixture(
     root: directory,
     async dispose() {
       await runtime.close();
-      rmSync(directory, { recursive: true, force: true });
+      // Windows may release a terminated child's file handles after its exit event.
+      await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
 }
