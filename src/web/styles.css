@@ -815,31 +815,6 @@ kbd {
   color: #636363;
   margin: 0;
 }
-.provider-picker {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 20px;
-  max-width: 780px;
-}
-.provider-picker button {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 12px 16px;
-  text-align: left;
-}
-.provider-picker strong {
-  font-size: 14px;
-}
-.provider-picker span {
-  color: #717171;
-  font-size: 12px;
-}
-.provider-picker button.selected {
-  border-color: #999;
-  background: #fafafa;
-}
 .settings-tabs {
   display: flex;
   gap: 4px;
@@ -1125,15 +1100,6 @@ kbd {
   }
 }
 @media (max-width: 760px) {
-  .provider-picker {
-    gap: 9px;
-  }
-  .provider-picker button {
-    padding: 14px 12px;
-  }
-  .provider-picker span {
-    font-size: 13px;
-  }
   .settings-tabs {
     margin-bottom: 20px;
   }
@@ -1958,10 +1924,6 @@ kbd {
   }
 }
 
-.provider-presets {
-  display: flex;
-  gap: 8px;
-}
 .connection-model-note {
   font-size: 13px;
   color: #777;

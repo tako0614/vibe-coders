@@ -4,10 +4,10 @@
 
 ## 起動
 
-Bun 1.3.14以上を先にインストールしてください。0.3.1は配布tarballから導入できます。npm公開済み版は0.1.8です。
+Bun 1.3.14以上を先にインストールしてください。0.3.2は配布tarballから導入できます。npm公開済み版は0.1.8です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.3.1.tgz
+npm install -g /path/to/vibe-coders-0.3.2.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -64,3 +64,5 @@ Atom Memoryは0.7.0を使用し、SQLiteドライバのimportをBun向けに置�
 
 
 チャットの「画面」で右パネルを開き、`＋` から複数の独立した仮想デスクトップを作成できます。画面ごとにシェル・Chromeプロファイル・操作権・MCPの対象を管理します。Codex/OpenRouterの対応モデルでは、チャットのモデル名の横からeffortを選択できます。
+
+チャットのモデルメニューから保存済みの接続先を切り替えられます。OpenRouter・OpenAI・互換APIのキーは「設定・接続」で接続先ごとに暗号化保存し、モデルとeffortも保持します。Codexは端末の認証を使います。ターミナル・デスクトップ・予定・記憶・ファイル・入力依頼は左サイドバーから開きます。

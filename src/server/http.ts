@@ -26,6 +26,11 @@ import type { WSContext } from 'hono/ws';
 import { providerCredentialSchema } from '../shared/models';
 import { providerModels } from './provider-models';
 import { updateProvider, updateSettings } from './settings';
+import {
+  providerConnections,
+  providerConnection,
+  removeProviderCredential,
+} from './provider-connections';
 
 const messageSchema = z
   .object({
@@ -174,6 +179,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       working: conversations.some((conversation) => conversation.state === 'running'),
       workspaceId: workspace.id,
       config: r.config.public(),
+      providers: providerConnections(r.config, r.vault),
       mcp: r.mcp.status(),
       desktops: r.desktop.list(),
       stopped: r.store.stopped,
@@ -424,6 +430,24 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     const result = await r.memory.human.write(r.vault.redact(text));
     r.memory.storage.flush();
     return c.json(result, 201);
+  });
+  app.post('/api/config/provider/activate', async (c) => {
+    const { revision, id } = z
+      .object({ revision: z.number().int(), id: z.string().max(4000) })
+      .strict()
+      .parse(await c.req.json());
+    return c.json(updateProvider(r, { revision, provider: providerConnection(r.config, id) }));
+  });
+  app.delete('/api/config/provider/credential', async (c) => {
+    const { revision, id } = z
+      .object({ revision: z.number().int(), id: z.string().max(4000) })
+      .strict()
+      .parse(await c.req.json());
+    if (r.store.listConversations().some((conversation) => conversation.state === 'running'))
+      throw new Error('実行が完了してからAPIキーを削除してください。');
+    removeProviderCredential(r.config, r.vault, revision, id);
+    r.store.notify();
+    return c.json({ removed: true });
   });
   app.post('/api/config/provider/models', async (c) =>
     c.json(await providerModels(r.config, r.vault, await c.req.json())),

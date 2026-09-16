@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { providerId } from '../shared/models';
 import {
   providerSchema,
   mcpSchema,
@@ -38,6 +39,14 @@ const hostSchema = z.object({
     })
     .optional(),
   provider: providerSchema.extend({ revision: z.number().int() }).optional(),
+  providers: z
+    .array(providerSchema)
+    .max(30)
+    .refine(
+      (items) => new Set(items.map(providerId)).size === items.length,
+      'Duplicate provider connection.',
+    )
+    .default([]),
   mcp: z.array(mcpSchema.extend({ revision: z.number().int() })).default([]),
   desktops: z
     .array(desktopDefinitionSchema.safeExtend({ revision: z.number().int().positive() }))
@@ -196,6 +205,7 @@ export class Config {
     return {
       revision: c.revision,
       provider: c.provider,
+      providers: c.providers,
       mcp: c.mcp,
       desktops: c.desktops,
       search: c.search,
@@ -231,6 +241,17 @@ export class Vault {
     withFileLock(`${this.path}.lock`, () => {
       const records = this.read();
       records[target] = { value, version, operationId };
+      const iv = randomBytes(12),
+        cipher = createCipheriv('aes-256-gcm', this.key, iv);
+      const encrypted = Buffer.concat([cipher.update(JSON.stringify(records)), cipher.final()]);
+      atomicWrite(this.path, Buffer.concat([iv, cipher.getAuthTag(), encrypted]));
+    });
+  }
+  remove(target: string) {
+    withFileLock(`${this.path}.lock`, () => {
+      const records = this.read();
+      if (!(target in records)) return;
+      delete records[target];
       const iv = randomBytes(12),
         cipher = createCipheriv('aes-256-gcm', this.key, iv);
       const encrypted = Buffer.concat([cipher.update(JSON.stringify(records)), cipher.final()]);

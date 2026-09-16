@@ -62,16 +62,27 @@ const until = async (expression: string, timeout = 10000) => {
 };
 const clickText = async (text: string) => {
   await until(`!!document.querySelector('.app-shell')`);
-  if (['設定・接続', '新しい会話'].includes(text)) {
-    await evaluate(
-      `(()=>{ if (innerWidth<=760 && document.querySelector('.app-shell.sidebar-hidden')) document.querySelector('button[aria-label="サイドバーを切り替え"]')?.click(); })()`,
-    );
+  if (text === 'を使用') {
+    await until(`!!document.querySelector('.model-custom:not(:disabled)')`);
+    await evaluate(`document.querySelector('.model-custom').click()`);
+    return;
   }
-  if (['ターミナル', '予定', 'ファイル', '記憶', '入力依頼', 'デスクトップ'].includes(text)) {
+  if (
+    [
+      '設定・接続',
+      '新しい会話',
+      'ターミナル',
+      '予定',
+      'ファイル',
+      '記憶',
+      '入力依頼',
+      'デスクトップ',
+    ].includes(text)
+  ) {
     await evaluate(
-      `(()=>{const menu=document.querySelector('.workspace-menu');if(!menu.open)menu.querySelector('summary').click()})()`,
+      `(()=>{if(document.querySelector('.app-shell.sidebar-hidden'))document.querySelector('[aria-label="サイドバーを切り替え"]').click();})()`,
     );
-    await until(`document.querySelector('.workspace-menu')?.open`);
+    await until(`!document.querySelector('.app-shell.sidebar-hidden')`);
   }
   await until(
     `Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes(${JSON.stringify(text)}))`,
@@ -481,7 +492,7 @@ try {
   );
 
   await clickText('設定・接続');
-  await until(`!!document.querySelector('.provider-picker')`);
+  await until(`!!document.querySelector('.provider-settings > .connection-picker')`);
   await clickText('MCP');
   await until(`!!document.querySelector('.mcp-settings')`);
   if (await evaluate(`!!document.querySelector('textarea[name="request"]')`))
@@ -548,7 +559,7 @@ try {
   await screenshot('mcp-settings');
   await clickText('AI接続');
   await evaluate(
-    `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('APIキー')).click()`,
+    `Array.from(document.querySelectorAll('.provider-settings > .connection-picker button')).find(b=>b.textContent.includes('OpenRouter')).click()`,
   );
   await evaluate(`document.querySelector('form.form-card').requestSubmit()`);
   await until(`!!document.querySelector('.request-card input[type="password"]')`);
@@ -568,9 +579,9 @@ try {
   };
   if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     await clickText('設定・接続');
-    await until(`!!document.querySelector('.provider-picker')`);
+    await until(`!!document.querySelector('.provider-settings > .connection-picker')`);
     await evaluate(
-      `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('Codex')).click()`,
+      `Array.from(document.querySelectorAll('.provider-settings > .connection-picker button')).find(b=>b.textContent.includes('Codex')).click()`,
     );
     await until(`document.querySelector('.codex-login')?.textContent.includes('ログイン済み')`);
     if (await evaluate(`!!document.querySelector('input[name="model"]')`))
@@ -603,9 +614,9 @@ try {
   }
   if (process.env.VIBE_CODER_TEST_MODEL_PORT) {
     await clickText('設定・接続');
-    await until(`!!document.querySelector('.provider-picker')`);
+    await until(`!!document.querySelector('.provider-settings > .connection-picker')`);
     await evaluate(
-      `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('APIキー')).click()`,
+      `Array.from(document.querySelectorAll('.provider-settings > .connection-picker button')).find(b=>b.textContent.includes('OpenRouter')).click()`,
     );
     await setValue(
       'input[name="baseUrl"]',
@@ -683,6 +694,53 @@ try {
       { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
       sessionId,
     );
+    if (process.env.VIBE_CODER_TEST_AUTH === '1') {
+      await setValue('.composer textarea', '接続先を切り替えても下書きを保持');
+      await openModels();
+      await setValue('.chat-model-dialog input[name="model"]', 'alpha');
+      await evaluate(
+        `document.querySelector('.chat-model-dialog [data-provider="codex"]').click()`,
+      );
+      await until(
+        `document.querySelector('.model-label')?.textContent.includes('subscription-model') && document.querySelector('.chat-model-dialog input[name="model"]')?.value === ''`,
+      );
+      await until(
+        `!!document.querySelector('.chat-model-dialog .connection-picker button:not(:disabled)')`,
+      );
+      await screenshot('provider-switch-codex');
+      await evaluate(
+        `Array.from(document.querySelectorAll('.chat-model-dialog [data-provider]')).find(b=>b.dataset.provider === 'api:http://127.0.0.1:${process.env.VIBE_CODER_TEST_MODEL_PORT}/v1').click()`,
+      );
+      await until(
+        `document.querySelector('.model-label')?.textContent.includes('fixture/alpha') && document.querySelector('.effort-trigger')?.textContent.includes('High')`,
+      );
+      await until(
+        `Array.from(document.querySelectorAll('.model-options [role="option"]')).some(e=>e.textContent.includes('Beta picker model'))`,
+      );
+      await until(
+        `document.querySelector('.composer textarea')?.value === '接続先を切り替えても下書きを保持'`,
+      );
+      await screenshot('provider-switch-api');
+      await command(
+        'Input.dispatchKeyEvent',
+        { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+        sessionId,
+      );
+      await until(`!document.querySelector('.chat-model-dialog')`);
+      await command('Page.reload', {}, sessionId);
+      await until(
+        `document.querySelector('.model-label')?.textContent.includes('fixture/alpha') && document.querySelector('.effort-trigger')?.textContent.includes('High')`,
+      );
+      await openModels();
+      await until(`!!document.querySelector('.chat-model-dialog [data-provider="codex"]')`);
+      await screenshot('provider-connections-reloaded');
+      await command(
+        'Input.dispatchKeyEvent',
+        { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+        sessionId,
+      );
+      await until(`!document.querySelector('.chat-model-dialog')`);
+    }
     await openModels();
     await setValue('input[name="model"]', 'fixture/manual-model');
     await clickText('を使用');
@@ -1051,8 +1109,16 @@ try {
       `document.querySelector('.activity-group > summary')?.textContent.includes('3件の操作を完了') && !document.querySelector('.execution-status')`,
     );
     await screenshot('activity-completed');
-    await evaluate(`document.querySelector('.workspace-menu > summary').click()`);
-    await until(`document.querySelector('.workspace-menu')?.open`);
+    await evaluate(`document.querySelector('[aria-label="サイドバーを切り替え"]').click()`);
+    await until(
+      `!!document.querySelector('.sidebar-tools') && document.querySelector('.workspace').inert`,
+    );
+    if (
+      await evaluate(
+        `!!document.querySelector('.topbar [aria-label="作業ツール"]') || document.querySelectorAll('.sidebar-tools button').length !== 6`,
+      )
+    )
+      throw Error('Tools were not moved to the sidebar');
     await screenshot('mobile-tools');
     await command(
       'Input.dispatchKeyEvent',
@@ -1060,7 +1126,7 @@ try {
       sessionId,
     );
     await until(
-      `!document.querySelector('.workspace-menu').open && document.activeElement===document.querySelector('.workspace-menu > summary')`,
+      `!!document.querySelector('.app-shell.sidebar-hidden') && document.activeElement===document.querySelector('[aria-label="サイドバーを切り替え"]')`,
     );
   }
   if (errors.length) throw new Error(`Browser exceptions: ${errors.join(', ')}`);
@@ -1083,13 +1149,14 @@ try {
         ...(process.env.VIBE_CODER_TEST_MODEL_PORT
           ? [
               'model picker search, list selection, direct entry, saved key reuse, effort selection and reload persistence',
+              'switch Codex and saved API connection in chat; restore model and effort, clear old search, preserve draft and catalog authentication',
             ]
           : []),
         'secret form',
         'mobile layout',
         ...(process.env.VIBE_CODER_TEST_ACTIVITY === '1'
           ? [
-              'working/thinking/streaming/input/error/completed states, grouped tools, real pause API, mobile tool menu and Escape',
+              'working/thinking/streaming/input/error/completed states, grouped tools, real pause API, sidebar work tools, mobile navigation and Escape',
               'two desktops, independent human control, bound shell, selected desktop survives reload, removal',
             ]
           : []),

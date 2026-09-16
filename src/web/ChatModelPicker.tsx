@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, LoaderCircle, Settings2, X } from 'lucide-react';
 import { api, type Status } from './api';
 import type { Action } from './App';
-import type { ModelChoice } from '../shared/models';
+import { providerId, providerName, type ModelChoice } from '../shared/models';
+import { ConnectionPicker } from './ConnectionPicker';
 import { ModelPicker } from './ModelPicker';
 import { EffortPicker } from './EffortPicker';
 
@@ -30,7 +31,7 @@ export function ChatModelPicker({
     ? status.codex?.subscriptionReady
     : !provider!.keyRequired || status.providerKeySaved;
   const working = status.working;
-  const name = codex ? 'Codex' : provider!.baseUrl.includes('openrouter.ai') ? 'OpenRouter' : 'API';
+  const name = provider ? providerName(provider) : 'Codex';
   const close = () => {
     dialog.current?.close();
     setOpen(false);
@@ -68,11 +69,13 @@ export function ChatModelPicker({
     };
   }, [open]);
   useEffect(() => {
+    setModels([]);
+    setError('');
+    setLoading(false);
     if (!ready) return;
     let current = true;
     setLoading(true);
     setError('');
-    setModels([]);
     void (
       codex
         ? api<ModelChoice[]>('/codex/models')
@@ -91,6 +94,9 @@ export function ChatModelPicker({
       current = false;
     };
   }, [ready, codex, provider?.baseUrl, provider?.revision, reload]);
+  useEffect(() => {
+    if (open && !saving) dialog.current?.querySelector<HTMLInputElement>('input')?.focus();
+  }, [open, saving, provider?.kind, provider?.baseUrl]);
   const choose = (model: string) => {
     if (saving || working || !ready) return;
     if (model === provider?.model) return close();
@@ -116,6 +122,18 @@ export function ChatModelPicker({
       }
     });
   };
+  const switchConnection = (id: string) => {
+    if (saving || working || (provider && providerId(provider) === id)) return;
+    setSaving(true);
+    setSaveError('');
+    void action(async () => {
+      try {
+        await api('/config/provider/activate', 'POST', { revision: status.config.revision, id });
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : '接続先を変更できませんでした。');
+      }
+    }).finally(() => setSaving(false));
+  };
   const choice = models.find((m) => m.id === provider?.model);
   const efforts = choice?.reasoningEfforts || [];
   const setEffort = (reasoningEffort: string) => {
@@ -138,11 +156,11 @@ export function ChatModelPicker({
         aria-label="モデルを選択"
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={working ? '実行が完了するとモデルを変更できます' : 'モデルを選択'}
+        title={working ? '実行が完了するとモデルを変更できます' : `${name} · モデルを選択`}
         disabled={working}
         onClick={() => setOpen(true)}
       >
-        <span>{provider?.model || 'モデルを選択'}</span>
+        <span>{provider?.model ? `${name} / ${provider.model}` : `${name} · モデルを選択`}</span>
         <ChevronDown size={14} />
       </button>
       {(efforts.length > 0 || provider?.reasoningEffort) && (
@@ -186,9 +204,18 @@ export function ChatModelPicker({
               <X size={16} />
             </button>
           </div>
-          <p className="model-scope-note">すべての会話で使用するモデル</p>
+          <div className="model-connections">
+            <ConnectionPicker
+              status={status}
+              value={provider ? providerId(provider) : 'codex'}
+              onChange={switchConnection}
+              disabled={saving || working}
+            />
+          </div>
+          <p className="model-scope-note">すべての会話で使用する接続先・モデル</p>
           {ready ? (
             <ModelPicker
+              key={provider ? providerId(provider) : 'codex'}
               value={provider?.model || ''}
               onSelect={choose}
               models={models}
@@ -198,7 +225,8 @@ export function ChatModelPicker({
               disabled={saving || working}
             />
           ) : (
-            <p className="model-setup-note">
+            <p className="model-setup-note" role={saveError ? 'alert' : undefined}>
+              {saveError || ''}
               {codex
                 ? 'Codexの認証を確認するか、APIキーを登録して始めましょう。'
                 : '接続設定でAPIキーを登録してください。'}

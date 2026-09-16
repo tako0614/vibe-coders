@@ -8,7 +8,6 @@ import {
   MessageSquare,
   Monitor,
   SquarePen,
-  ChevronDown,
   Settings2,
   Search,
   SquareTerminal,
@@ -55,26 +54,6 @@ export function App() {
   const [historyQuery, setHistoryQuery] = useState('');
   const side = useRef<HTMLElement>(null),
     menu = useRef<HTMLButtonElement>(null);
-  const toolsMenu = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    const dismiss = (event: PointerEvent) => {
-      const node = toolsMenu.current;
-      if (node?.open && !node.contains(event.target as Node)) node.open = false;
-    };
-    const escape = (event: KeyboardEvent) => {
-      const node = toolsMenu.current;
-      if (event.key === 'Escape' && node?.open) {
-        node.open = false;
-        node.querySelector('summary')?.focus();
-      }
-    };
-    document.addEventListener('pointerdown', dismiss);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss);
-      document.removeEventListener('keydown', escape);
-    };
-  }, []);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 760px)');
     const changed = () => {
@@ -175,7 +154,6 @@ export function App() {
   const navigate = (next: View, section = 'model') => {
     if (next === 'settings') setSettingsSection(section);
     setView(next);
-    if (toolsMenu.current) toolsMenu.current.open = false;
     if (mobile) setSidebar(false);
   };
   const choose = (id: string) => {
@@ -183,7 +161,6 @@ export function App() {
     setSelected(id);
     setSnapshot(undefined);
     setView('chat');
-    if (toolsMenu.current) toolsMenu.current.open = false;
     if (mobile) setSidebar(false);
     try {
       if (status) localStorage.setItem(`vibe-conversation:${status.home}`, id);
@@ -282,6 +259,27 @@ export function App() {
         <button className="new-chat" aria-label="新しい会話" onClick={() => void newChat()}>
           <SquarePen size={16} /> 新しい会話
         </button>
+        <div className="sidebar-tools-label">作業ツール</div>
+        <nav className="sidebar-tools" aria-label="作業ツール">
+          {navigation
+            .filter(([id]) => id !== 'chat')
+            .map(([id, Icon, name]) => (
+              <button
+                key={id}
+                className={view === id ? 'selected' : ''}
+                onClick={() => navigate(id)}
+                aria-current={view === id ? 'page' : undefined}
+                aria-label={name}
+              >
+                <Icon size={16} />
+                <span>{name}</span>
+                {id === 'requests' && pending.length > 0 && (
+                  <b className="count">{pending.length}</b>
+                )}
+                {id === 'terminal' && activeRuns.length > 0 && <i className="live-dot" />}
+              </button>
+            ))}
+        </nav>
         <div className="history-search">
           <Search size={14} aria-hidden="true" />
           <input
@@ -348,7 +346,6 @@ export function App() {
               aria-expanded={sidebar}
               aria-controls="app-sidebar"
               onClick={() => {
-                if (toolsMenu.current) toolsMenu.current.open = false;
                 setSidebar(!sidebar);
               }}
             >
@@ -373,44 +370,6 @@ export function App() {
               チャット
             </button>
             {view !== 'chat' && <span className="current-tool">{currentView}</span>}
-          </div>
-          <div className="topbar-actions">
-            <details
-              className="workspace-menu"
-              ref={toolsMenu}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && toolsMenu.current?.open) {
-                  e.preventDefault();
-                  toolsMenu.current.open = false;
-                  toolsMenu.current.querySelector('summary')?.focus();
-                }
-              }}
-            >
-              <summary aria-label="作業ツール">
-                作業ツール{pending.length > 0 && <span className="count">{pending.length}</span>}
-                <ChevronDown size={14} />
-              </summary>
-              <nav className="workspace-menu-content" aria-label="作業ツールの一覧">
-                {navigation
-                  .filter(([id]) => id !== 'chat')
-                  .map(([id, Icon, name]) => (
-                    <button
-                      key={id}
-                      className={view === id ? 'selected' : ''}
-                      onClick={() => navigate(id)}
-                      aria-current={view === id ? 'page' : undefined}
-                      aria-label={name}
-                    >
-                      <Icon size={16} />
-                      <span>{name}</span>
-                      {id === 'requests' && pending.length > 0 && (
-                        <b className="count">{pending.length}</b>
-                      )}
-                      {id === 'terminal' && activeRuns.length > 0 && <i className="live-dot" />}
-                    </button>
-                  ))}
-              </nav>
-            </details>
           </div>
         </header>
         {!connected && status && !connectionError && (

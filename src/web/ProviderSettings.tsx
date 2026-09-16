@@ -3,33 +3,35 @@ import { ArrowRight, LoaderCircle } from 'lucide-react';
 import { api, type Snapshot, type Status } from './api';
 import type { Action, View } from './App';
 import { CodexLogin } from './CodexLogin';
-import { providerUrl } from '../shared/models';
+import { providerId, providerUrl, type Provider } from '../shared/models';
+import { ConnectionPicker } from './ConnectionPicker';
 
 type Props = { status: Status; snapshot: Snapshot; action: Action; onView: (view: View) => void };
+type Connection = Status['providers'][number];
 export function ProviderSettings(props: Props) {
-  const provider = props.status.config.provider;
-  const [kind, setKind] = useState(provider?.kind || (provider ? 'openai' : 'codex'));
+  const [selected, setSelected] = useState(
+    props.status.config.provider ? providerId(props.status.config.provider) : 'codex',
+  );
+  const connection = props.status.providers.find((value) => value.id === selected);
   return (
     <div className="provider-settings">
-      <div className="provider-picker" role="group" aria-label="AIの接続方法">
-        <button className={kind === 'codex' ? 'selected' : ''} onClick={() => setKind('codex')}>
-          <strong>Codex</strong>
-          <span>端末のChatGPT認証で使う</span>
-        </button>
-        <button className={kind === 'openai' ? 'selected' : ''} onClick={() => setKind('openai')}>
-          <strong>APIキー</strong>
-          <span>OpenRouter・OpenAI互換</span>
-        </button>
-      </div>
-      {kind === 'codex' ? <CodexSettings {...props} /> : <ApiSettings {...props} />}
+      <ConnectionPicker status={props.status} value={selected} onChange={setSelected} allowAdd />
+      {connection?.provider.kind === 'codex' ? (
+        <CodexSettings {...props} connection={connection} />
+      ) : (
+        <ApiSettings key={selected} {...props} connection={connection} />
+      )}
     </div>
   );
 }
-
-function CodexSettings({ status, snapshot, action, onView }: Props) {
-  const provider = status.config.provider;
+function CodexSettings({
+  status,
+  snapshot,
+  action,
+  onView,
+  connection,
+}: Props & { connection: Connection }) {
   const [saving, setSaving] = useState(false);
-  const selected = provider?.kind === 'codex';
   return (
     <section className="form-card provider-card">
       <div className="section-heading">
@@ -37,108 +39,111 @@ function CodexSettings({ status, snapshot, action, onView }: Props) {
           <h2>Codex</h2>
           <p>この端末のChatGPT認証を使います。</p>
         </div>
-        <span className={`status-chip ${selected ? 'ready' : ''}`}>
-          {selected ? '使用中' : '未選択'}
+        <span className={`status-chip ${connection.active ? 'ready' : ''}`}>
+          {connection.active ? '使用中' : '未選択'}
         </span>
       </div>
       <CodexLogin conversationId={snapshot.conversation.id} action={action} />
-      <p className="connection-model-note">モデルの選択・変更はチャットの入力欄から行えます。</p>
+      <p className="connection-model-note">
+        {connection.provider.model
+          ? `前回のモデル: ${connection.provider.model}`
+          : 'モデルはチャットの入力欄から選べます。'}
+      </p>
       <button
         className="primary connect-button"
-        disabled={saving || !status.codex?.subscriptionReady}
-        onClick={() =>
+        disabled={saving || status.working || !status.codex?.subscriptionReady}
+        onClick={() => {
+          if (connection.active) return onView('chat');
+          setSaving(true);
           void action(async () => {
-            if (selected) return onView('chat');
-            setSaving(true);
-            try {
-              await api('/config/provider', 'PUT', {
-                revision: status.config.revision,
-                provider: {
-                  kind: 'codex',
-                  model: '',
-                  baseUrl: 'https://chatgpt.com/backend-api/codex',
-                  supportsImages: true,
-                  keyRequired: false,
-                },
-              });
-              onView('chat');
-            } finally {
-              setSaving(false);
-            }
-          })
-        }
+            await api('/config/provider/activate', 'POST', {
+              revision: status.config.revision,
+              id: connection.id,
+            });
+            onView('chat');
+          }).finally(() => setSaving(false));
+        }}
       >
         {saving ? <LoaderCircle size={16} className="spin" /> : <ArrowRight size={16} />}
-        {saving ? '保存中…' : selected ? 'チャットでモデルを選ぶ' : 'Codexを使う'}
+        {saving ? '切り替え中…' : connection.active ? 'チャットでモデルを選ぶ' : 'Codexを使う'}
       </button>
     </section>
   );
 }
-
-function ApiSettings({ status, snapshot, action, onView }: Props) {
-  const provider = status.config.provider?.kind !== 'codex' ? status.config.provider : undefined;
-  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl || 'https://openrouter.ai/api/v1');
+function ApiSettings({
+  status,
+  snapshot,
+  action,
+  onView,
+  connection,
+}: Props & { connection?: Connection }) {
+  const [baseUrl, setBaseUrl] = useState(connection?.provider.baseUrl || '');
   const [credential, setCredential] = useState(''),
     [saving, setSaving] = useState(false);
-  const [keyRequired, setKeyRequired] = useState(provider?.keyRequired ?? true),
-    [supportsImages, setSupportsImages] = useState(provider?.supportsImages ?? true);
-  const sameUrl =
-    !!provider && baseUrl.replace(/\/+$/, '') === provider.baseUrl.replace(/\/+$/, '');
-  const savedKey = sameUrl && status.providerKeySaved;
-  const connected = !!provider && (!provider.keyRequired || status.providerKeySaved);
-  const changeUrl = (url: string) => {
-    setBaseUrl(url);
-    setCredential('');
+  const [keyRequired, setKeyRequired] = useState(connection?.provider.keyRequired ?? true);
+  const [supportsImages, setSupportsImages] = useState(connection?.provider.supportsImages ?? true);
+  let matching: Connection | undefined;
+  try {
+    matching = status.providers.find(
+      (value) =>
+        value.provider.kind !== 'codex' &&
+        providerUrl(value.provider.baseUrl) === providerUrl(baseUrl),
+    );
+  } catch {}
+  const savedKey = !!matching?.credentialSaved;
+  const connected = savedKey || (!!matching && !keyRequired);
+  const disabled = saving || status.working;
+  const activate = () => {
+    if (!connection || disabled) return;
+    setSaving(true);
+    void action(async () => {
+      await api('/config/provider/activate', 'POST', {
+        revision: status.config.revision,
+        id: connection.id,
+      });
+      onView('chat');
+    }).finally(() => setSaving(false));
   };
   return (
     <form
       className="form-card provider-card"
       onSubmit={(event) => {
         event.preventDefault();
+        if (disabled) return;
+        setSaving(true);
         void action(async () => {
-          setSaving(true);
-          try {
-            const result = await api<{ credentialReady: boolean }>('/config/provider', 'PUT', {
-              revision: status.config.revision,
-              provider: {
-                kind: 'openai',
-                baseUrl: providerUrl(baseUrl),
-                model: sameUrl ? provider!.model : '',
-                supportsImages,
-                keyRequired,
-              },
-              ...(credential && keyRequired ? { credential } : {}),
+          const provider: Provider = {
+            ...(matching?.provider || {}),
+            kind: 'openai',
+            baseUrl: providerUrl(baseUrl),
+            model: matching?.provider.model || '',
+            supportsImages,
+            keyRequired,
+          };
+          const result = await api<{ credentialReady: boolean }>('/config/provider', 'PUT', {
+            revision: status.config.revision,
+            provider,
+            ...(credential && keyRequired ? { credential } : {}),
+          });
+          setCredential('');
+          if (!result.credentialReady) {
+            await api('/config/secret-request', 'POST', {
+              conversationId: snapshot.conversation.id,
+              targetId: 'provider:main',
             });
-            setCredential('');
-            if (!result.credentialReady) {
-              await api('/config/secret-request', 'POST', {
-                conversationId: snapshot.conversation.id,
-                targetId: 'provider:main',
-              });
-              onView('requests');
-            } else onView('chat');
-          } finally {
-            setSaving(false);
-          }
-        });
+            onView('requests');
+          } else onView('chat');
+        }).finally(() => setSaving(false));
       }}
     >
       <div className="section-heading">
         <div>
-          <h2>APIに接続</h2>
-          <p>サービスとAPIキーを設定します。モデルはチャットで選べます。</p>
+          <h2>{connection?.name || 'APIに接続'}</h2>
+          <p>APIキーとモデルを接続先ごとに保存します。</p>
         </div>
         <span className={`status-chip ${connected ? 'ready' : ''}`}>
-          {connected ? '登録済み' : '未登録'}
+          {connection?.active ? '使用中' : connected ? '保存済み' : '未登録'}
         </span>
-      </div>
-      <div className="provider-presets" role="group" aria-label="APIサービス">
-        <button type="button" onClick={() => changeUrl('https://openrouter.ai/api/v1')}>
-          OpenRouter
-        </button>
-        <button type="button" onClick={() => changeUrl('https://api.openai.com/v1')}>
-          OpenAI
-        </button>
       </div>
       <label>
         APIのURL
@@ -146,9 +151,13 @@ function ApiSettings({ status, snapshot, action, onView }: Props) {
           name="baseUrl"
           type="url"
           value={baseUrl}
-          onChange={(e) => changeUrl(e.target.value)}
           required
-          disabled={saving}
+          disabled={disabled}
+          placeholder="https://api.example.com/v1"
+          onChange={(e) => {
+            setBaseUrl(e.target.value);
+            setCredential('');
+          }}
         />
       </label>
       {keyRequired && (
@@ -161,23 +170,29 @@ function ApiSettings({ status, snapshot, action, onView }: Props) {
             value={credential}
             maxLength={16000}
             onChange={(e) => setCredential(e.target.value)}
-            disabled={saving}
+            disabled={disabled}
             placeholder={
-              savedKey
-                ? '保存済みのキーを使用（変更する場合だけ入力）'
-                : 'キーを入力するとモデル一覧も取得できます'
+              savedKey ? '保存済みのキーを使用（変更する場合だけ入力）' : 'APIキーを入力'
             }
           />
-          <small className="muted">接続設定専用の入力です。チャットには送信しません。</small>
+          <small className="muted">
+            この端末に暗号化して保存します。チャットには送信しません。
+          </small>
         </label>
       )}
-      <p className="connection-model-note">保存後、チャットの入力欄からモデルを選べます。</p>
+      {matching?.provider.model && (
+        <p className="connection-model-note">
+          前回のモデル: {matching.provider.model}
+          {matching.provider.reasoningEffort ? ` · ${matching.provider.reasoningEffort}` : ''}
+        </p>
+      )}
       <div className="form-grid">
         <label className="checkbox">
           <input
             type="checkbox"
             name="supportsImages"
             checked={supportsImages}
+            disabled={disabled}
             onChange={(e) => setSupportsImages(e.target.checked)}
           />
           画像を送信できる
@@ -187,18 +202,46 @@ function ApiSettings({ status, snapshot, action, onView }: Props) {
             type="checkbox"
             name="keyRequired"
             checked={keyRequired}
+            disabled={disabled}
             onChange={(e) => setKeyRequired(e.target.checked)}
           />
           APIキーを使用する
         </label>
       </div>
-      <button className="primary" disabled={saving}>
-        {saving ? '保存中…' : '保存して接続する'}
-      </button>
-      {connected && (
-        <button type="button" onClick={() => onView('chat')}>
-          チャットへ戻る
-          <ArrowRight size={14} />
+      <div className="connection-actions">
+        <button className="primary" disabled={disabled}>
+          {saving ? '保存中…' : '保存して接続する'}
+        </button>
+        {connection && !connection.active && connected && (
+          <button type="button" disabled={disabled} onClick={activate}>
+            保存済みの設定で使う
+          </button>
+        )}
+        {connection?.active && (
+          <button type="button" onClick={() => onView('chat')}>
+            チャットへ戻る
+            <ArrowRight size={14} />
+          </button>
+        )}
+      </div>
+      {savedKey && matching && (
+        <button
+          type="button"
+          className="connection-remove-key"
+          disabled={disabled}
+          onClick={() => {
+            if (!window.confirm(`${matching.name}の保存済みAPIキーを削除しますか？`)) return;
+            setSaving(true);
+            void action(async () => {
+              await api('/config/provider/credential', 'DELETE', {
+                revision: status.config.revision,
+                id: matching.id,
+              });
+              setCredential('');
+            }).finally(() => setSaving(false));
+          }}
+        >
+          保存済みAPIキーを削除
         </button>
       )}
     </form>

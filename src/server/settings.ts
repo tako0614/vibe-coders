@@ -6,7 +6,7 @@ import {
   searchSchema,
 } from '../shared/contracts';
 import type { Runtime } from './runtime';
-import { savedProviderCredential } from './provider-models';
+import { saveProvider } from './provider-connections';
 
 type Services = Pick<Runtime, 'config' | 'store' | 'vault' | 'desktop' | 'codex'>;
 export const settingsUpdateSchema = z
@@ -40,32 +40,10 @@ export function updateProvider(
     r.store.listConversations().some((c) => c.state === 'running' && c.id !== conversationId)
   )
     throw new Error('実行が完了してからモデルや接続先を変更してください。');
-  const key =
-    provider.kind === 'codex' || !provider.keyRequired
-      ? undefined
-      : credential || savedProviderCredential(r.config, r.vault, provider.baseUrl);
-  const config = r.config.update(revision, (v) => {
-    v.provider = {
-      ...provider,
-      ...(provider.kind === 'codex'
-        ? {
-            baseUrl: 'https://chatgpt.com/backend-api/codex',
-            keyRequired: false,
-            supportsImages: true,
-          }
-        : {}),
-      revision: (v.provider?.revision || 0) + 1,
-    };
-  });
-  if (key)
-    r.config.lock(() => {
-      if (r.config.read().revision !== config.revision)
-        throw new Error('接続設定が変更されました。再読み込みしてください。');
-      r.vault.put('provider:main', config.provider!.revision, crypto.randomUUID(), key);
-    });
+  const { credentialReady } = saveProvider(r.config, r.vault, revision, provider, credential);
   r.store.notify();
   if (provider.kind === 'codex') void r.codex.refresh().catch(() => {});
-  return { ...r.config.public(), credentialReady: !config.provider!.keyRequired || !!key };
+  return { ...r.config.public(), credentialReady };
 }
 
 export async function updateSettings(r: Services, raw: unknown, conversationId?: string) {

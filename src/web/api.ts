@@ -1,3 +1,4 @@
+import type { providerConnections } from '../server/provider-connections';
 import type { Store } from '../server/store';
 import type { Config } from '../server/config';
 import type { Desktop } from '../server/desktop';
@@ -10,6 +11,7 @@ export type Status = {
   working: boolean;
   conversations: ReturnType<Store['listConversations']>;
   config: ReturnType<Config['public']>;
+  providers: ReturnType<typeof providerConnections>;
   mcp: ReturnType<McpService['status']>;
   desktops: ReturnType<Desktop['list']>;
   stopped: boolean;

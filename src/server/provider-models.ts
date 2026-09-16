@@ -3,23 +3,25 @@ import {
   reasoningChoices,
   modelDiscoverySchema,
   providerUrl,
+  providerId,
   type ModelChoice,
 } from '../shared/models';
 
-export function savedProviderCredential(config: Config, vault: Vault, baseUrl: string) {
-  const current = config.read().provider;
-  return current &&
-    current.kind !== 'codex' &&
-    providerUrl(current.baseUrl) === providerUrl(baseUrl)
-    ? vault.get('provider:main', current.revision)
-    : undefined;
-}
+import { savedProviderCredential } from './provider-connections';
 
 export async function providerModels(config: Config, vault: Vault, input: unknown) {
   const { baseUrl, credential, useSavedCredential } = modelDiscoverySchema.parse(input);
+  const current = config.read();
+  const id = providerId({ kind: 'openai', baseUrl });
+  const saved =
+    current.provider && providerId(current.provider) === id
+      ? current.provider
+      : current.providers.find((provider) => providerId(provider) === id);
   const key =
     credential ||
-    (useSavedCredential ? savedProviderCredential(config, vault, baseUrl) : undefined);
+    (useSavedCredential && saved?.keyRequired !== false
+      ? savedProviderCredential(config, vault, baseUrl)
+      : undefined);
   let response: Response;
   try {
     response = await fetch(`${providerUrl(baseUrl)}/models`, {

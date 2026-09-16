@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { saveProvider } from './server/provider-connections';
 import { parseArgs } from 'node:util';
 import { resolve, join } from 'node:path';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -77,9 +78,7 @@ async function main() {
       keyRequired: false,
       supportsImages: true,
     });
-    config.update(config.read().revision, (c) => {
-      c.provider = { ...provider, revision: (c.provider?.revision || 0) + 1 };
-    });
+    saveProvider(config, new Vault(config.directory), config.read().revision, provider);
     console.log(
       'Parent model uses your Codex subscription. Sign in from WebUI or vibe-coders codex login.',
     );
@@ -104,9 +103,12 @@ async function main() {
       supportsImages: true,
     });
     const current = config.read();
-    const next = config.update(current.revision, (c) => {
-      c.provider = { ...provider, revision: (c.provider?.revision || 0) + 1 };
-    });
+    const { config: next } = saveProvider(
+      config,
+      new Vault(config.directory),
+      current.revision,
+      provider,
+    );
     if (
       !values.model &&
       provider.keyRequired &&

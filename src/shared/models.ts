@@ -42,3 +42,24 @@ export function reasoningChoices(levels: unknown, defaultLevel?: unknown) {
 }
 
 export const providerUrl = (url: string) => new URL(url).href.replace(/\/+$/, '');
+
+export type Provider = z.infer<typeof providerSchema>;
+export const providerId = (provider: Pick<Provider, 'kind' | 'baseUrl'>) =>
+  provider.kind === 'codex' ? 'codex' : `api:${providerUrl(provider.baseUrl)}`;
+export const providerPresets: Provider[] = [
+  providerSchema.parse({
+    kind: 'codex',
+    baseUrl: 'https://chatgpt.com/backend-api/codex',
+    keyRequired: false,
+  }),
+  providerSchema.parse({ kind: 'openai', baseUrl: 'https://openrouter.ai/api/v1' }),
+  providerSchema.parse({ kind: 'openai', baseUrl: 'https://api.openai.com/v1' }),
+];
+export function providerName(provider: Provider) {
+  const id = providerId(provider);
+  if (id === 'codex') return 'Codex';
+  if (id === 'api:https://openrouter.ai/api/v1') return 'OpenRouter';
+  if (id === 'api:https://api.openai.com/v1') return 'OpenAI';
+  const url = new URL(provider.baseUrl);
+  return url.host + (url.pathname === '/v1' || url.pathname === '/' ? '' : url.pathname);
+}
