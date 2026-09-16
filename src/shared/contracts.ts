@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { MemoryUse } from './memory';
 
 export const fieldSchema = z
   .object({
@@ -81,6 +82,8 @@ export type MessageBody = {
   toolCalls?: ToolCall[];
   toolCallId?: string;
   images?: ImagePart[];
+  memory?: MemoryUse;
+  memoryWarning?: string;
   // Opaque provider continuation items; excluded from Atom's textual context.
   codex?: { model: string; output: unknown[] };
 };

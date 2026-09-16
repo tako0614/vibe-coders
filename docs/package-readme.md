@@ -4,10 +4,10 @@
 
 ## 起動
 
-Bun 1.3.14以上を先にインストールしてください。0.3.2は配布tarballから導入できます。npm公開済み版は0.1.8です。
+Bun 1.3.14以上を先にインストールしてください。0.3.3は配布tarballから導入できます。npm公開済み版は0.1.8です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.3.2.tgz
+npm install -g /path/to/vibe-coders-0.3.3.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init

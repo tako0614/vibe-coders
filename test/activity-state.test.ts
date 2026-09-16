@@ -189,3 +189,61 @@ test('Resuming with a later tool batch does not restart an old operation without
     'ファイルを確認・編集しています',
   );
 });
+
+test('persistent command completion is independent of its live shell and reconnect progress is visible', async () => {
+  const { r, snapshot } = await setup();
+  const batch = calls(['shell_run', { command: 'printf done' }]);
+  r.store.message(r.id, batch);
+  r.store.db
+    .insert(runs)
+    .values({
+      id: 'persistent',
+      conversationId: r.id,
+      kind: 'terminal',
+      title: '作業シェル',
+      cwd: r.home,
+      host: 'test',
+      state: 'running',
+      owner: 'agent',
+      createdAt: Date.now(),
+    })
+    .run();
+  r.store.message(r.id, {
+    role: 'tool',
+    toolCallId: batch.toolCalls![0].id,
+    content: JSON.stringify({ runId: 'persistent', command: { id: 'command' } }),
+  });
+  const view = {
+    ...snapshot(),
+    shellSessions: [
+      {
+        id: 'persistent',
+        conversationId: r.id,
+        name: 'main',
+        cwd: r.home,
+        state: 'ready' as const,
+        ready: true,
+        commands: [
+          {
+            id: 'command',
+            command: 'printf done',
+            state: 'completed' as const,
+            startedAt: Date.now(),
+            exitCode: 0,
+            offset: 0,
+          },
+        ],
+      },
+    ],
+  };
+  expect([...collectActivities(view).values()][0]!.state).toBe('completed');
+  expect(executionProgress(view, true, collectActivities(view))).toBeNull();
+  const retrying = {
+    ...view,
+    conversation: { ...view.conversation, state: 'running' as const },
+    retry: { attempt: 1, at: Date.now() },
+  };
+  expect(executionProgress(retrying, true, collectActivities(retrying))?.title).toBe(
+    'モデルに再接続中',
+  );
+});

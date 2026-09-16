@@ -1,5 +1,5 @@
 diff --git a/dist/adapters/sqlite.js b/dist/adapters/sqlite.js
-index 1d0ae98746926b9a01b51620970381a049ab583e..650b0744565db37ef6db0d63e21113b5b21b97c2 100644
+index 1d0ae98746926b9a01b51620970381a049ab583e..00abb8bab033429cf7629983dcb978adbf578fc2 100644
 --- a/dist/adapters/sqlite.js
 +++ b/dist/adapters/sqlite.js
 @@ -1,4 +1,4 @@
@@ -8,3 +8,29 @@ index 1d0ae98746926b9a01b51620970381a049ab583e..650b0744565db37ef6db0d63e21113b5
  import { uid } from '../core/util.js';
  import { vectorBuckets } from '../core/vector-buckets.js';
  function prefixEnd(prefix) {
+@@ -178,8 +178,8 @@ export class SqliteStorage {
+             clauses.push(`EXISTS(SELECT 1 FROM am_slots s WHERE ${slot})`);
+         }
+         if (q.text?.length) {
+-            clauses.push(`(${q.text.map(() => 'instr(r.body_text,?)>0').join(' OR ')})`);
+-            args.push(...q.text);
++            clauses.push('EXISTS (SELECT 1 FROM json_each(?) AS terms WHERE instr(r.body_text,terms.value)>0)');
++            args.push(JSON.stringify(q.text));
+         }
+         args.push(q.limit);
+         return this.#db
+diff --git a/src/adapters/sqlite.ts b/src/adapters/sqlite.ts
+index 8342859bb7e65311cdb9158395d396d19f049f1b..006c00f9880bf65ca642e28cf7aaaacfe254e87a 100644
+--- a/src/adapters/sqlite.ts
++++ b/src/adapters/sqlite.ts
+@@ -192,8 +192,8 @@ export class SqliteStorage implements StorageAdapter {
+       clauses.push(`EXISTS(SELECT 1 FROM am_slots s WHERE ${slot})`);
+     }
+     if (q.text?.length) {
+-      clauses.push(`(${q.text.map(() => 'instr(r.body_text,?)>0').join(' OR ')})`);
+-      args.push(...q.text);
++      clauses.push('EXISTS (SELECT 1 FROM json_each(?) AS terms WHERE instr(r.body_text,terms.value)>0)');
++      args.push(JSON.stringify(q.text));
+     }
+     args.push(q.limit);
+     return (

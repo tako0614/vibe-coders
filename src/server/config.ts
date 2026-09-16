@@ -220,6 +220,7 @@ export class Config {
 export class Vault {
   private key: Buffer;
   private path: string;
+  private secretCache?: { signature: string; values: string[] };
   constructor(directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const keyPath = join(directory, 'vault.key');
@@ -290,6 +291,13 @@ export class Vault {
     return { text: value.slice(0, value.length - held), pending: held ? value.slice(-held) : '' };
   }
   private secretValues() {
+    // Atomic replacement changes the inode, including writes from another process.
+    // Recheck identity rather than using a TTL that could briefly expose a new key.
+    const stat = statSync(this.path, { bigint: true, throwIfNoEntry: false });
+    const signature = stat
+      ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`
+      : 'absent';
+    if (this.secretCache?.signature === signature) return this.secretCache.values;
     const values: string[] = [];
     const add = (value: unknown, key = '') => {
       if (
@@ -309,7 +317,9 @@ export class Vault {
         values.push(r.value);
       }
     }
-    return values.filter(Boolean).sort((a, b) => b.length - a.length);
+    const sorted = values.filter(Boolean).sort((a, b) => b.length - a.length);
+    this.secretCache = { signature, values: sorted };
+    return sorted;
   }
   redact(value: string) {
     for (const secret of this.secretValues()) {

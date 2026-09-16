@@ -8,7 +8,8 @@ import {
 import type { Runtime } from './runtime';
 import { saveProvider } from './provider-connections';
 
-type Services = Pick<Runtime, 'config' | 'store' | 'vault' | 'desktop' | 'codex'>;
+type Services = Pick<Runtime, 'config' | 'store' | 'vault' | 'desktop' | 'codex'> &
+  Partial<Pick<Runtime, 'memory'>>;
 export const settingsUpdateSchema = z
   .object({
     revision: z.number().int(),
@@ -31,6 +32,7 @@ export function updateProvider(
     throw new Error('Codexは端末の認証情報を使用します。');
   if (/^sk-[\w-]{20,}$/.test(provider.model))
     throw new Error('APIキーはモデル名ではなく、APIキーの専用欄に入力してください。');
+  if (r.memory?.organizing) throw new Error('記憶の整理が完了してから接続先を変更してください。');
   const previous = r.config.read().provider;
   if (
     (previous?.model !== provider.model ||

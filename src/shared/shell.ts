@@ -48,3 +48,22 @@ export const emptyWorkspace = (): ShellWorkspace => ({
   placements: {},
   hidden: [],
 });
+
+export type ShellCommand = {
+  id: string;
+  command: string;
+  state: 'running' | 'completed' | 'interrupted';
+  startedAt: number;
+  endedAt?: number;
+  exitCode?: number;
+  offset: number;
+};
+export type ShellSession = {
+  id: string;
+  conversationId: string;
+  name: string;
+  cwd: string;
+  state: 'starting' | 'ready' | 'running' | 'closed';
+  ready: boolean;
+  commands: ShellCommand[];
+};

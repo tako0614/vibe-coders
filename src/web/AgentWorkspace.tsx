@@ -1,3 +1,4 @@
+import type { MemoryItem } from '../shared/memory';
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { Monitor, SquareTerminal, Plus, Settings2, PanelRightClose } from 'lucide-react';
 import { Chat, type ComposerDraft } from './Chat';
@@ -16,6 +17,7 @@ export function AgentWorkspace({
   onView,
   drafts,
   onStarted,
+  onMemory,
 }: {
   snapshot: Snapshot;
   status: Status;
@@ -23,6 +25,7 @@ export function AgentWorkspace({
   onView: (view: View, section?: string) => void;
   drafts: Map<string, ComposerDraft>;
   onStarted?: (id: string) => void;
+  onMemory?: (item: MemoryItem) => void;
 }) {
   const visibilityKey = `vibe-workbench:${status.home}`;
   const [expanded, setExpanded] = useState(() => {
@@ -119,6 +122,7 @@ export function AgentWorkspace({
         status={status}
         action={action}
         onView={onView}
+        onMemory={onMemory}
         drafts={drafts}
         onStarted={onStarted}
         onWorkspace={open}

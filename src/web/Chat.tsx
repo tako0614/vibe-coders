@@ -1,6 +1,8 @@
+import type { MemoryItem } from '../shared/memory';
 import { useComposerDraft } from './drafts';
 import { useEffect, useRef, useState } from 'react';
 import {
+  BookOpen,
   ArrowDown,
   ArrowUp,
   ArrowUpRight,
@@ -229,6 +231,7 @@ export function Chat({
   onWorkspace,
   surface,
   onStarted,
+  onMemory,
 }: {
   snapshot: Snapshot;
   status: Status;
@@ -238,7 +241,17 @@ export function Chat({
   onWorkspace: (surface: WorkSurface) => void;
   surface: WorkSurface | null;
   onStarted?: (id: string) => void;
+  onMemory?: (item: MemoryItem) => void;
 }) {
+  useEffect(() => {
+    const target = document.getElementById(window.location.hash.slice(1));
+    if (target) {
+      follow.current = false;
+      target.scrollIntoView({ block: 'center' });
+      target.focus({ preventScroll: true });
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, [s.conversation.id, s.messages.length]);
   const draftId = onStarted ? 'new' : s.conversation.id;
   const persisted = useComposerDraft(
     `${status.config.username}:${status.home}:${draftId}`,
@@ -297,7 +310,12 @@ export function Chat({
   }
   const pending = s.requests.filter((r) => r.state === 'pending' || r.state === 'processing');
   useEffect(() => {
-    if (follow.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
+    const target = document.getElementById(window.location.hash.slice(1));
+    if (target && scroll.current?.contains(target)) {
+      follow.current = false;
+      target.scrollIntoView({ block: 'center' });
+    } else if (follow.current && scroll.current)
+      scroll.current.scrollTop = scroll.current.scrollHeight;
     else setShowLatest(true);
   }, [s.messages.length, s.draft, pending.length]);
   const send = async () => {
@@ -376,6 +394,8 @@ export function Chat({
               return (
                 <article
                   className={`message ${m.body.role}`}
+                  id={`message-${m.id}`}
+                  tabIndex={-1}
                   key={m.id}
                   aria-label={
                     m.body.role === 'assistant'
@@ -397,6 +417,24 @@ export function Chat({
                       />
                     ))}
                   </div>
+                  {m.body.memoryWarning && <p className="memory-note">{m.body.memoryWarning}</p>}
+                  {!!m.body.memory?.items.length && (
+                    <details className="message-memory">
+                      <summary>
+                        <BookOpen size={13} />
+                        モデルへ渡した記憶 · {m.body.memory.items.length}件
+                      </summary>
+                      <div>
+                        {m.body.memory.items.map((item) => (
+                          <button key={item.ref} onClick={() => onMemory?.(item)}>
+                            {item.title}
+                            <ChevronRight size={13} />
+                          </button>
+                        ))}
+                        {m.body.memory.partial && <small>取得範囲に上限があります</small>}
+                      </div>
+                    </details>
+                  )}
                   {m.body.role === 'assistant' && m.body.content && (
                     <div className="message-actions">
                       <button

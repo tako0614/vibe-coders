@@ -1,6 +1,6 @@
 # 配布・運用
 
-2026-09-16。**0.3.2は接続先ごとのAPIキー・モデル・effortの保存とチャットからの切り替えに対応し、作業ツールを左サイドバーへ移動しました。複数デスクトップにも対応しています。npm公開は認証待ち（401）で、公開済み版は0.1.8です。** 0.2.0ではデッキ・複数端末と共通shellを追加し、専用native子実行を廃止しました。検索・直接入力できるモデルpickerと既存Codex認証の再利用にも対応しています。[0.3.2の変更・検証記録](debugging-0.3.2.md)・[shellの仕様と移行](shell-workspace.md)を参照してください。以下のnpmインストール例は公開済み版です。
+2026-09-16。**0.3.3は記憶の自動整理・出典と関連の表示、継続シェル、モデル通信の再試行を追加しました。0.3.2は接続先ごとのAPIキー・モデル・effortの保存とチャットからの切り替えに対応し、作業ツールを左サイドバーへ移動しました。複数デスクトップにも対応しています。npm公開は認証待ち（401）で、公開済み版は0.1.8です。** 0.2.0ではデッキ・複数端末と共通shellを追加し、専用native子実行を廃止しました。検索・直接入力できるモデルpickerと既存Codex認証の再利用にも対応しています。[0.3.3の変更・検証記録](debugging-0.3.3.md)・[shellの仕様と移行](shell-workspace.md)を参照してください。以下のnpmインストール例は公開済み版です。
 
 ```sh
 npm install -g vibe-coders@0.1.8
@@ -26,7 +26,7 @@ npm pack
 ローカルtarballの導入後は以下の手順です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.3.2.tgz
+npm install -g /path/to/vibe-coders-0.3.3.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init

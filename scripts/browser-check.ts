@@ -462,8 +462,42 @@ try {
   await clickText('記憶');
   await clickText('記憶を追加');
   await setValue('textarea[name="text"]', 'ブラウザで保存した検証用の記憶。');
-  await evaluate(`document.querySelector('.form-card').requestSubmit()`);
-  await until(`!!document.querySelector('.memory-card')`);
+  await evaluate(`document.querySelector('.memory-editor').requestSubmit()`);
+  await until(`!!document.querySelector('.memory-list-item')`);
+  await evaluate(`document.querySelector('.memory-list-item').click()`);
+  await until(
+    `document.querySelector('.memory-body')?.textContent.includes('ブラウザで保存した検証用の記憶')`,
+  );
+  await clickText('内容・つながりを編集');
+  await setValue(
+    'textarea[name="text"]',
+    'ブラウザで保存した検証用の記憶。\n編集と変更履歴の確認。',
+  );
+  await evaluate(`document.querySelector('.memory-editor').requestSubmit()`);
+  await until(`document.querySelectorAll('.memory-history-row').length===2`);
+  await screenshot('memory-details');
+  await evaluate(`document.querySelectorAll('.memory-history-row')[1].click()`);
+  await until(
+    `document.querySelector('.memory-inspector')?.textContent.includes('過去の版') && !document.querySelector('.memory-body')?.textContent.includes('編集と変更履歴')`,
+  );
+  await evaluate(`document.querySelectorAll('.memory-history-row')[0].click()`);
+  await until(`document.querySelector('.memory-body')?.textContent.includes('編集と変更履歴')`);
+  await command(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    sessionId,
+  );
+  await screenshot('memory-mobile');
+  if (await evaluate(`document.documentElement.scrollWidth > window.innerWidth + 2`))
+    throw new Error('Memory detail overflows mobile width.');
+  await clickText('一覧へ');
+  await until(`!document.querySelector('.memory-inspector')`);
+  await command(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
+    sessionId,
+  );
+
   await clickText('ファイル');
   await until(`document.body.textContent.includes('AGENT.md')`);
   await clickText('AGENT.md');

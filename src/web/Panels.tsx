@@ -19,7 +19,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { AtomView } from 'atom-memory';
 import { api, operationId, time, stateLabel, type Snapshot, type Status } from './api';
 import type { Action, View } from './App';
 import { ProviderSettings } from './ProviderSettings';
@@ -437,122 +436,8 @@ export function SettingsPanel({
   );
 }
 
-export function MemoryPanel({ action }: { action: Action }) {
-  const [query, setQuery] = useState(''),
-    [items, setItems] = useState<AtomView[]>([]),
-    [add, setAdd] = useState(false),
-    [loading, setLoading] = useState(true),
-    [error, setError] = useState('');
-  const revision = useRef(0);
-  const search = async () => {
-    const request = ++revision.current;
-    setLoading(true);
-    setError('');
-    try {
-      const result = await api<{ items: AtomView[] }>(`/memory?q=${encodeURIComponent(query)}`);
-      if (request === revision.current) setItems(result.items);
-    } catch (e) {
-      if (request === revision.current)
-        setError(e instanceof Error ? e.message : '記憶を取得できませんでした。');
-    } finally {
-      if (request === revision.current) setLoading(false);
-    }
-  };
-  useEffect(() => {
-    void search();
-    return () => {
-      revision.current++;
-    };
-  }, []);
-  return (
-    <section className="page">
-      <Heading
-        title="記憶"
-        description="必要な記憶を推論のたびに取り出します。記憶の保存や修正も、エージェントに依頼できます。"
-      >
-        <button className="primary" onClick={() => setAdd(!add)}>
-          <Plus size={15} />
-          記憶を追加
-        </button>
-      </Heading>
-      <form
-        className="search-bar"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void search();
-        }}
-      >
-        <Search size={17} />
-        <input
-          aria-label="記憶を検索"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="記憶を検索…"
-        />
-        <button disabled={loading}>{loading ? '検索中…' : '検索'}</button>
-      </form>
-      {add && (
-        <form
-          className="form-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            const text = String(new FormData(form).get('text'));
-            void action(async () => {
-              await api('/memory', 'POST', { text });
-              form.reset();
-              setAdd(false);
-              await search();
-            });
-          }}
-        >
-          <label>
-            覚えておくこと
-            <textarea name="text" required placeholder="方針や好み、作業で見つけたこと…" />
-          </label>
-          <button className="primary">保存</button>
-        </form>
-      )}
-      {error && (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      )}
-      {loading ? (
-        <p className="panel-loading" role="status">
-          記憶を読み込み中…
-        </p>
-      ) : items.length ? (
-        <div className="memory-grid">
-          {items.map((m) => (
-            <article className="memory-card" key={m.ref}>
-              <div>
-                <Brain size={16} />
-                <span>{m.provenance.origin}</span>
-              </div>
-              <p>{m.text}</p>
-              <code title={m.ref}>{m.ref}</code>
-              {m.links.length > 0 && <small>{m.links.length} 件の関連</small>}
-            </article>
-          ))}
-        </div>
-      ) : (
-        <Empty
-          title="一致する記憶はありません"
-          text="大切な文脈を保存すると、次の作業で取り出せるようになります。"
-        />
-      )}
-    </section>
-  );
-}
 
-type FilePreview = {
-  path: string;
-  text: string;
-  totalLines: number;
-  nextLine: number | null;
-  sha256: string;
-};
+type FilePreview = { path: string; text: string; totalLines: number; nextLine: number | null; sha256: string };
 export function FilesPanel({ action }: { action: Action }) {
   const [changes, setChanges] = useState(false),
     [editing, setEditing] = useState(false);

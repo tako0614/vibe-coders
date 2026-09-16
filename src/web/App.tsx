@@ -1,3 +1,4 @@
+import type { MemoryItem } from '../shared/memory';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
@@ -23,7 +24,7 @@ const TerminalPanel = lazy(() =>
 );
 const SchedulesPanel = lazy(() => import('./Panels').then((m) => ({ default: m.SchedulesPanel })));
 const SettingsPanel = lazy(() => import('./Panels').then((m) => ({ default: m.SettingsPanel })));
-const MemoryPanel = lazy(() => import('./Panels').then((m) => ({ default: m.MemoryPanel })));
+const MemoryPanel = lazy(() => import('./MemoryPanel').then((m) => ({ default: m.MemoryPanel })));
 const FilesPanel = lazy(() => import('./Panels').then((m) => ({ default: m.FilesPanel })));
 const DesktopPanel = lazy(() => import('./Panels').then((m) => ({ default: m.DesktopPanel })));
 
@@ -39,6 +40,7 @@ const navigation = [
   ['files', FolderOpen, 'ファイル'],
 ] as const;
 export function App() {
+  const [memorySelection, setMemorySelection] = useState<MemoryItem>();
   const [status, setStatus] = useState<Status>(),
     [snapshot, setSnapshot] = useState<Snapshot>();
   const [selected, setSelected] = useState(''),
@@ -156,7 +158,8 @@ export function App() {
     setView(next);
     if (mobile) setSidebar(false);
   };
-  const choose = (id: string) => {
+  const choose = (id: string, messageId?: string) => {
+    window.location.hash = messageId ? `message-${messageId}` : '';
     selectedRef.current = id;
     setSelected(id);
     setSnapshot(undefined);
@@ -168,6 +171,7 @@ export function App() {
     void refresh();
   };
   const newChat = () => {
+    window.location.hash = '';
     setHistoryQuery('');
     if (selectedRef.current === 'new') navigate('chat');
     else choose('new');
@@ -413,6 +417,7 @@ export function App() {
                 key={selected}
                 onStarted={selected === 'new' ? started : undefined}
                 snapshot={snapshot}
+                onMemory={item => { setMemorySelection(item); navigate('memory'); }}
                 status={status}
                 action={action}
                 onView={navigate}
@@ -464,7 +469,7 @@ export function App() {
                 onView={navigate}
               />
             )}
-            {view === 'memory' && <MemoryPanel action={action} />}
+            {view === 'memory' && <MemoryPanel action={action} status={status} selected={memorySelection} onSelect={setMemorySelection} onConversation={choose} />}
             {view === 'files' && <FilesPanel action={action} />}
             {view === 'desktop' && (
               <DesktopPanel status={status} action={action} onView={navigate} />

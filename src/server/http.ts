@@ -1,3 +1,4 @@
+import { memoryWriteSchema } from '../shared/memory';
 import { Hono } from 'hono';
 import { TerminalSockets } from './terminal-socket';
 import { bodyLimit } from 'hono/body-limit';
@@ -176,7 +177,9 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     return c.json({
       home: r.home,
       conversations: conversations.filter((conversation) => conversation.id !== workspace.id),
-      working: conversations.some((conversation) => conversation.state === 'running'),
+      working:
+        r.memory.organizing ||
+        conversations.some((conversation) => conversation.state === 'running'),
       workspaceId: workspace.id,
       config: r.config.public(),
       providers: providerConnections(r.config, r.vault),
@@ -207,6 +210,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     c.json({
       ...r.store.snapshot(c.req.param('id')),
       draft: r.agent.drafts.get(c.req.param('id')) || '',
+      shellSessions: r.shellSessions.list(c.req.param('id')),
     }),
   );
   app.post('/api/conversations/:id/messages', async (c) => {
@@ -422,14 +426,52 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       ),
     ),
   );
-  app.get('/api/memory', async (c) =>
-    c.json(await r.memory.human.search(c.req.query('q') || 'このリポジトリの記憶')),
-  );
+  app.get('/api/memory', async (c) => {
+    const query = z
+      .object({
+        q: z.string().max(4000).default(''),
+        kind: z.enum(['memories', 'sources', 'retired']).default('memories'),
+        cursor: z.string().max(1000).optional(),
+      })
+      .parse(c.req.query());
+    return c.json({
+      ...(await r.memory.list(query.q, query.kind, query.cursor)),
+      jobs: r.memoryWriter.jobs(),
+      automatic: r.memoryWriter.automatic,
+    });
+  });
   app.post('/api/memory', async (c) => {
-    const { text } = z.object({ text: z.string().min(1).max(32000) }).parse(await c.req.json());
-    const result = await r.memory.human.write(r.vault.redact(text));
-    r.memory.storage.flush();
-    return c.json(result, 201);
+    const input = memoryWriteSchema.parse(await c.req.json());
+    return c.json(await r.memory.exclusive(() => r.memory.write(input, { actor: 'human' })), 201);
+  });
+  app.get('/api/memory/atoms/:id', async (c) =>
+    c.json(
+      await r.memory.detail(c.req.param('id'), c.req.query('revision'), c.req.query('history')),
+    ),
+  );
+  app.put('/api/memory/atoms/:id', async (c) => {
+    const { ref, ...input } = memoryWriteSchema
+      .extend({ ref: z.string() })
+      .parse(await c.req.json());
+    if (r.memory.identity(ref).id !== c.req.param('id'))
+      throw new Error('記憶の参照が一致しません。');
+    return c.json(await r.memory.exclusive(() => r.memory.write(input, { actor: 'human', ref })));
+  });
+  app.post('/api/memory/atoms/:id/retire', async (c) => {
+    const { ref } = z.object({ ref: z.string() }).parse(await c.req.json());
+    if (r.memory.identity(ref).id !== c.req.param('id'))
+      throw new Error('記憶の参照が一致しません。');
+    await r.memory.exclusive(() => r.memory.retire(ref));
+    return c.json({ retired: true });
+  });
+  app.post('/api/memory/organize', async (c) => {
+    const { conversationId } = z
+      .object({ conversationId: z.string().uuid() })
+      .parse(await c.req.json());
+    r.store.assertEnabled();
+    if (r.model.isConfigured?.() === false)
+      throw new Error('モデルを選択してから整理してください。');
+    return c.json(r.memoryWriter.enqueue(conversationId) || { state: 'complete' }, 202);
   });
   app.post('/api/config/provider/activate', async (c) => {
     const { revision, id } = z
@@ -443,7 +485,10 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       .object({ revision: z.number().int(), id: z.string().max(4000) })
       .strict()
       .parse(await c.req.json());
-    if (r.store.listConversations().some((conversation) => conversation.state === 'running'))
+    if (
+      r.memory.organizing ||
+      r.store.listConversations().some((conversation) => conversation.state === 'running')
+    )
       throw new Error('実行が完了してからAPIキーを削除してください。');
     removeProviderCredential(r.config, r.vault, revision, id);
     r.store.notify();

@@ -151,6 +151,7 @@ export class Store {
     );
     return {
       conversation: this.conversation(id),
+      retry: this.get<{ attempt: number; at: number } | false>(`model-retry:${id}`, false) || null,
       workspace: this.workspace(id),
       messages: this.history(id),
       requests: this.db

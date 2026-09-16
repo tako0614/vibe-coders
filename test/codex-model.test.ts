@@ -210,7 +210,7 @@ test('subscription stream truncation cannot execute tools and quota failures nev
     r.agent.submit(r.id, 'Attempt truncated stream.', crypto.randomUUID());
     await eventually(() => r.store.conversation(r.id).state === 'error');
     expect(await Bun.file(join(r.home, 'must-not-exist')).exists()).toBe(false);
-    expect(requests).toBe(1);
+    expect(requests).toBe(3); // Retry inference only; no incomplete tool call executes.
   } finally {
     await r.cleanup();
   }
@@ -219,7 +219,7 @@ test('subscription stream truncation cannot execute tools and quota failures nev
     attempts++;
     return new Response(
       JSON.stringify({
-        error: { message: `private server error ${token}`, type: 'rate_limit_error' },
+        error: { message: `private server error ${token}`, type: 'usage_limit_reached' },
       }),
       { status: 429, headers: { 'Content-Type': 'application/json' } },
     );

@@ -4,7 +4,10 @@ import type { Config } from '../server/config';
 import type { Desktop } from '../server/desktop';
 import type { McpService } from '../server/mcp';
 import type { CodexAuth } from '../server/codex-auth';
-export type Snapshot = ReturnType<Store['snapshot']> & { draft: string };
+export type Snapshot = ReturnType<Store['snapshot']> & {
+  draft: string;
+  shellSessions?: import('../shared/shell').ShellSession[];
+};
 export type Status = {
   home: string;
   workspaceId: string;
@@ -69,7 +72,7 @@ export async function listen(
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     const heartbeat = () => {
       clearTimeout(watchdog);
-      watchdog = setTimeout(() => connection.abort(), 25000);
+      watchdog = setTimeout(() => connection.abort(), 120000);
     };
     try {
       heartbeat();

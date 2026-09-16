@@ -8,7 +8,7 @@
 
 Bun 1.3.14以上が必要です。初期の検証対象はLinuxです。
 
-npm公開済み版は `npm install -g vibe-coders@0.1.8`、このソースの0.3.2は配布tarballから導入できます（npm公開は認証待ち）。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
+npm公開済み版は `npm install -g vibe-coders@0.1.8`、このソースの0.3.3は配布tarballから導入できます（npm公開は認証待ち）。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
 
 ```sh
 git clone https://github.com/tako0614/vibe-coders.git
@@ -110,3 +110,5 @@ DBのmigrationはバックエンド起動時に適用します。依存は `bun.
 チャットの「画面」から作業パネルを開き、`＋`で独立した画面を追加できます。画面ごとにChromeプロファイル・シェルの接続先・操作権・MCPの対象を分けます。モデル名の横には、CodexとOpenRouterのモデルが対応するeffortを表示します。[複数画面の仕様](docs/debugging-0.3.0.md)。新しい会話は最初の送信時に履歴へ追加します。右の作業パネルは閉じて再表示でき、effortは説明付きメニューから選べます。[0.3.1の変更と検証](docs/debugging-0.3.1.md)。
 
 0.3.2ではチャットのモデルメニューからCodex・OpenRouter・OpenAI・保存済みの互換APIを切り替えられます。APIキーは接続先ごとに暗号化保存し、モデルとeffortも復元します。作業ツールは左サイドバーにまとめました。[変更と検証](docs/debugging-0.3.2.md)。
+
+0.3.3ではAtomの出典・関連・変更履歴と会話からの自動整理、同じ作業シェルでの継続実行、モデル通信の再試行に対応しました。長い会話の記憶検索で起きていたSQLiteエラーも修正しています。[変更と検証](docs/debugging-0.3.3.md)。

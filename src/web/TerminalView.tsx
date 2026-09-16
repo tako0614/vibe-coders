@@ -296,7 +296,7 @@ export function TerminalView({
     };
     heartbeat = setInterval(() => {
       if (socket?.readyState === WebSocket.OPEN) {
-        if (Date.now() - lastPacket > 30000) socket.close();
+        if (Date.now() - lastPacket > 120000) socket.close();
         else send({ type: 'ping' });
       }
     }, 10000);

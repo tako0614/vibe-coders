@@ -1,3 +1,4 @@
+import { modelFailure } from './model-errors';
 import type { ReasoningEffort } from 'openai/resources/shared';
 import { ModelContextExceeded, isContextLimit } from './model';
 import OpenAI from 'openai';
@@ -84,7 +85,7 @@ export class CodexModel implements ModelAdapter {
         baseURL,
         apiKey: credentials.token,
         maxRetries: 0,
-        timeout: 120000,
+        timeout: 300000,
         defaultHeaders: { 'Chatgpt-Account-Id': credentials.accountId, originator: 'vibe_coders' },
         fetch: this.fetcher,
         fetchOptions: { redirect: 'error' },
@@ -119,6 +120,7 @@ export class CodexModel implements ModelAdapter {
         let output: ResponseOutputItem[] | undefined;
         const completedItems = new Map<number, ResponseOutputItem>();
         for await (const event of stream) {
+          input.onProgress?.();
           received = true;
           if (event.type === 'response.output_text.delta') input.onText?.(event.delta);
           if (event.type === 'response.output_item.done')
@@ -200,10 +202,16 @@ export class CodexModel implements ModelAdapter {
         // Never persist upstream bodies, headers or account details in errors.
         if (error instanceof OpenAI.APIError && error.status === 401)
           return this.login(input, true);
-        if (error instanceof OpenAI.APIError && error.status === 429)
+        if (
+          error instanceof OpenAI.APIError &&
+          error.status === 429 &&
+          [error.code, error.type].some(
+            (value) => value === 'usage_limit_reached' || value === 'insufficient_quota',
+          )
+        )
           throw new Error('CODEX_USAGE_LIMIT');
         if (error instanceof Error && error.message === 'MODEL_RESPONSE_INCOMPLETE') throw error;
-        throw new Error('CODEX_MODEL_FAILED');
+        throw modelFailure(error);
       }
     }
     throw new Error('CODEX_MODEL_FAILED');

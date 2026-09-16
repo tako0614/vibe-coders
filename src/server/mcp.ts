@@ -154,7 +154,7 @@ export class McpService {
     if (!this.desktopAllowed(config))
       throw new Error('Desktop ownership changed during connection setup.');
     const client = new Client(
-      { name: 'vibe-coders', version: '0.3.2' },
+      { name: 'vibe-coders', version: '0.3.3' },
       { capabilities: { elicitation: { form: {}, url: {} } } },
     );
     const c: Connection = {

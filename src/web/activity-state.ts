@@ -18,7 +18,7 @@ export function executionSurface(
       )
     )
       return 'desktop';
-    if (call.name === 'terminal_open' || call.name === 'shell_exec') return 'terminal';
+    if (call.name === 'terminal_open' || call.name.startsWith('shell_')) return 'terminal';
     if (/^(run_|terminal_)/.test(call.name)) {
       const args = parse(call.arguments);
       if (snapshot.runs.some((r) => r.id === args.id && ['shell', 'terminal'].includes(r.kind)))
@@ -41,7 +41,10 @@ const names: Record<string, string> = {
   file_replace: 'ファイルを編集',
   file_list: 'ファイルを確認',
   file_glob: 'ファイルを探す',
-  shell_exec: 'コマンドを実行',
+  shell_exec: '別プロセスを起動',
+  shell_open: '作業シェルを開く',
+  shell_run: '作業シェルで実行',
+  shell_poll: 'コマンドの終了を待つ',
   run_write: '端末に入力',
   run_read: '実行結果を確認',
   run_list: '実行を確認',
@@ -122,8 +125,19 @@ export function collectActivities(snapshot: Snapshot): Map<string, Activity> {
         call.name === 'shell_exec' || call.name === 'terminal_open' || call.name.startsWith('mcp_');
       const run = startsRun ? runs.get(String(output.runId || output.id || '')) : undefined;
       const request = requests.get(String(output.requestId || output.id || ''));
+      const commandResult = output.command as { id?: string } | undefined;
+      const session = snapshot.shellSessions?.find((session) => session.id === output.runId);
+      const command = session?.commands.find((command) => command.id === commandResult?.id);
       let state: ActivityState;
-      if (output.outcome === 'interrupted' || run?.state === 'interrupted') state = 'interrupted';
+      if (call.name === 'shell_run' && command)
+        state =
+          command.state === 'completed'
+            ? command.exitCode === 0
+              ? 'completed'
+              : 'failed'
+            : command.state;
+      else if (output.outcome === 'interrupted' || run?.state === 'interrupted')
+        state = 'interrupted';
       else if (output.error || output.isError === true || run?.state === 'failed') state = 'failed';
       else if (request?.state === 'cancelled' || request?.state === 'expired') state = 'cancelled';
       else if (request?.state === 'pending' || request?.state === 'processing') state = 'waiting';
@@ -170,7 +184,8 @@ export function executionProgress(
     (run) =>
       run.owner === 'agent' &&
       ['shell', 'terminal'].includes(run.kind) &&
-      ['running', 'stopping'].includes(run.state),
+      ['running', 'stopping'].includes(run.state) &&
+      snapshot.shellSessions?.find((session) => session.id === run.id)?.state !== 'ready',
   );
   if (snapshot.stopped) return null;
   if (c.state === 'error') return { kind: 'error', title: '処理が止まりました' };
@@ -179,6 +194,12 @@ export function executionProgress(
       kind: 'paused',
       title: 'AIは一時停止中',
       detail: background.length ? `シェル${background.length}件は引き続き動いています` : undefined,
+    };
+  if (c.state === 'running' && snapshot.retry)
+    return {
+      kind: 'running',
+      title: 'モデルに再接続中',
+      detail: `一時的な切断から復帰しています（${snapshot.retry.attempt}/2）。シェルの作業は継続しています。`,
     };
   if (c.state === 'running') {
     const current = [...activities.values()].find(

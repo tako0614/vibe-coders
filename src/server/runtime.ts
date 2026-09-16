@@ -8,6 +8,7 @@ import { Store } from './store';
 import { HumanService } from './human';
 import { RunService } from './runs';
 import { MemoryService } from './memory';
+import { MemoryWriter } from './memory-writer';
 import { Scheduler } from './scheduler';
 import { Files } from './files';
 import { ChatModel, type ModelAdapter } from './model';
@@ -19,6 +20,8 @@ import { verifyProvider } from './credentials';
 import { prune } from './retention';
 import { CodexAuth } from './codex-auth';
 import { CodexModel } from './codex-model';
+import { ShellSessions } from './shell-sessions';
+import { ReliableModel } from './model-errors';
 
 export function createRuntime(options: {
   home: string;
@@ -37,7 +40,9 @@ export function createRuntime(options: {
     human = new HumanService(store, config, vault),
     desktop = new Desktop(store, config, vault, { home, directory }),
     runs = new RunService(store, home, vault, desktop);
-  const memory = new MemoryService(join(directory, 'memory.sqlite')),
+  const memory = new MemoryService(join(directory, 'memory.sqlite'), store, (text) =>
+      vault.redact(text),
+    ),
     changes = new WorkspaceChanges(home, directory),
     files = new Files(home),
     scheduler = new Scheduler(store, runs);
@@ -76,20 +81,24 @@ export function createRuntime(options: {
   );
   const apiModel = new ChatModel(config, vault),
     subscriptionModel = new CodexModel(config, codex, options.codex?.fetch);
-  const model: ModelAdapter = options.model || {
-    isConfigured: () => {
-      const provider = config.read().provider;
-      return (
-        !!provider &&
-        !!provider.model &&
-        (provider.kind === 'codex' ||
-          !provider.keyRequired ||
-          !!vault.get('provider:main', provider.revision))
-      );
+  const model: ModelAdapter = new ReliableModel(
+    options.model || {
+      isConfigured: () => {
+        const provider = config.read().provider;
+        return (
+          !!provider &&
+          !!provider.model &&
+          (provider.kind === 'codex' ||
+            !provider.keyRequired ||
+            !!vault.get('provider:main', provider.revision))
+        );
+      },
+      call: (input) =>
+        (config.read().provider?.kind === 'codex' ? subscriptionModel : apiModel).call(input),
     },
-    call: (input) =>
-      (config.read().provider?.kind === 'codex' ? subscriptionModel : apiModel).call(input),
-  };
+  );
+  const shellSessions = new ShellSessions(store, runs, directory, desktop);
+  const memoryWriter = new MemoryWriter(memory, store, model, options.timers !== false);
   const agent = new Agent(
     store,
     config,
@@ -105,6 +114,8 @@ export function createRuntime(options: {
     codex,
   );
   agent.beforeWork = () => changes.ready;
+  agent.onCompleted = (id) => memoryWriter.enqueue(id);
+  agent.shellSessions = shellSessions;
   runs.recover();
   human.recover();
   codex.recover();
@@ -183,6 +194,8 @@ export function createRuntime(options: {
     human,
     runs,
     memory,
+    memoryWriter,
+    shellSessions,
     files,
     changes,
     scheduler,
@@ -195,6 +208,7 @@ export function createRuntime(options: {
     async close() {
       clearInterval(timer);
       await changes.ready.catch(() => {});
+      await memoryWriter.close();
       await codex.close();
       human.shutdown();
       await agent.close();
@@ -202,6 +216,7 @@ export function createRuntime(options: {
       await mcp.close();
       await desktop.close();
       await runs.close();
+      shellSessions.close();
       memory.close();
       sqlite.close();
     },

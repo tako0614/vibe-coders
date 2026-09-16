@@ -19,6 +19,8 @@ export type ModelInput = {
   tools: ToolDefinition[];
   signal: AbortSignal;
   onText?: (text: string) => void;
+  onRetry?: (attempt: number, code: string) => void;
+  onProgress?: () => void;
 };
 export interface ModelAdapter {
   isConfigured?(): boolean;
@@ -57,7 +59,7 @@ export class ChatModel implements ModelAdapter {
       fetch: this.fetcher,
       baseURL: p.baseUrl,
       maxRetries: 0,
-      timeout: 120000,
+      timeout: 300000,
     });
     const messages: ChatCompletionMessageParam[] = [{ role: 'system', content: input.system }];
     for (const m of input.messages) {
@@ -93,7 +95,7 @@ export class ChatModel implements ModelAdapter {
         {
           model: p.model,
           messages,
-          tools,
+          ...(tools.length ? { tools } : {}),
           stream: true,
           ...(p.reasoningEffort
             ? new URL(p.baseUrl).hostname === 'openrouter.ai'
@@ -112,6 +114,7 @@ export class ChatModel implements ModelAdapter {
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
     let finished = false;
     for await (const chunk of stream) {
+      input.onProgress?.();
       const choice = chunk.choices[0];
       if (!choice) continue;
       if (choice.finish_reason) {

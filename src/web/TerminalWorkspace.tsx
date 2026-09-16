@@ -332,6 +332,7 @@ function Workspace({
         {available
           .sort((a, b) => a.createdAt - b.createdAt)
           .map((run) => {
+            const session = snapshot.shellSessions?.find((session) => session.id === run.id);
             const inDeck = compact || deckOf(run) === deck.id,
               focused = selected?.id === run.id;
             return (
@@ -401,9 +402,35 @@ function Workspace({
                   </form>
                 )}
                 <div className="shell-tile-meta">
-                  <code title={run.cwd}>{run.cwd}</code>
-                  <span>{stateLabel[run.state]}</span>
+                  <code title={session?.cwd || run.cwd}>{session?.cwd || run.cwd}</code>
+                  <span>
+                    {session
+                      ? {
+                          starting: '起動中',
+                          ready: 'コマンド待機',
+                          running: 'コマンド実行中',
+                          closed: '終了',
+                        }[session.state]
+                      : stateLabel[run.state]}
+                  </span>
                 </div>
+                {!!session?.commands.length && (
+                  <details className="shell-command-history">
+                    <summary>作業シェル · {session.commands.length} コマンド</summary>
+                    {[...session.commands].reverse().map((command) => (
+                      <div key={command.id}>
+                        <code>{command.command}</code>
+                        <span>
+                          {command.state === 'running'
+                            ? '実行中'
+                            : command.state === 'interrupted'
+                              ? '中断'
+                              : `終了 ${command.exitCode}`}
+                        </span>
+                      </div>
+                    ))}
+                  </details>
+                )}
                 {run.kind === 'terminal' ? (
                   <TerminalView run={run} stopped={snapshot.stopped} focused={inDeck && focused} />
                 ) : (
