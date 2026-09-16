@@ -76,7 +76,9 @@ test('Codex sign-in runs independently, keeps private auth out of history, and a
     ])
       expect(visible).not.toContain(value);
     await Bun.write(state, JSON.stringify({ signedIn: true, finish: true }));
-    await eventually(() => r.codex.status().state === 'signed_in');
+    // Credential verification precedes asynchronous RPC cleanup and card completion.
+    // Wait for the login attempt to finish before asserting its durable result.
+    await eventually(() => r.codex.status().state === 'signed_in' && !r.codex.status().requestId);
     expect(r.human.get(card.id)).toMatchObject({
       state: 'resolved',
       result: { verification: 'verified' },
