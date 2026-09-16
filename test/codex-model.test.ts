@@ -113,6 +113,9 @@ test('parent Codex subscription uses the fixed endpoint and retains done items, 
     return sse([message('The parent used the subscription.')]);
   });
   try {
+    r.config.update(r.config.read().revision, (c) => {
+      c.provider!.reasoningEffort = 'high';
+    });
     r.agent.submit(r.id, 'Write the proof file.', crypto.randomUUID(), [
       { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
     ]);
@@ -120,6 +123,8 @@ test('parent Codex subscription uses the fixed endpoint and retains done items, 
       r.store.history(r.id).some((m) => m.body.content === 'The parent used the subscription.'),
     );
     expect(await Bun.file(join(r.home, 'subscription-proof.txt')).text()).toBe('SUB_OK\n');
+    expect(payloads[0].reasoning).toEqual({ effort: 'high' });
+    expect(payloads[1].reasoning).toEqual({ effort: 'high' });
     expect(
       payloads[0].input.some((m: any) => m.content?.some?.((p: any) => p.type === 'input_image')),
     ).toBe(true);

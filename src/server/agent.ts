@@ -479,7 +479,10 @@ export class Agent {
         'shell_exec',
         'Start a command at explicit cwd or Home. Returns a run handle immediately. Completion is a separate event.',
         shellSchema,
-        (a) => this.runs.start(conversationId, a),
+        async (a) => {
+          if (a.desktopId) await this.desktop.get(a.desktopId).prepare();
+          return this.runs.start(conversationId, a);
+        },
       ),
       tool(
         'run_list',
@@ -698,7 +701,7 @@ export class Agent {
         () => ({
           config: this.config.public(),
           mcp: this.mcp.status(),
-          desktop: this.desktop.status(),
+          desktops: this.desktop.list(),
           codex: this.codex.status(),
         }),
       ),
@@ -847,27 +850,47 @@ export class Agent {
             })),
       ),
       tool(
+        'desktop_create',
+        'Create an independent virtual desktop on this host.',
+        z.object({ name: z.string().min(1).max(100) }),
+        (a) => this.desktop.create(a.name),
+      ),
+      tool(
+        'desktop_remove',
+        'Remove an idle agent-owned desktop. Stop its shells and remove its MCP connections first.',
+        z.object({ desktopId: z.string() }),
+        async (a) => {
+          await this.desktop.remove(a.desktopId, 'agent');
+          return { removed: true };
+        },
+      ),
+      tool(
         'desktop_status',
         'Read the installed host desktop, automatic setup progress, ownership and capabilities.',
         z.object({}),
-        () => this.desktop.status(),
+        () => this.desktop.list(),
       ),
       tool(
         'desktop_launch',
         'Prepare this host desktop automatically and open its browser or terminal. Suspended while the user owns the desktop.',
-        z.object({ app: z.enum(['browser', 'terminal']), url: z.url().optional() }),
-        (a) => this.desktop.launch(a.app, a.url),
+        z.object({
+          desktopId: z.string().optional(),
+          app: z.enum(['browser', 'terminal']),
+          url: z.url().optional(),
+        }),
+        (a) => this.desktop.get(a.desktopId).launch(a.app, a.url),
       ),
       tool(
         'desktop_screenshot',
         'Automatically prepare and capture the desktop on the installed host. Returns image input and an observation ID. Blocked while the user owns the desktop.',
-        z.object({}),
-        () => this.desktop.screenshot(),
+        z.object({ desktopId: z.string().optional() }),
+        (a) => this.desktop.get(a.desktopId).screenshot(),
       ),
       tool(
         'desktop_input',
         'Operate using coordinates from a fresh screenshot. Each operation invalidates that observation.',
         z.object({
+          desktopId: z.string().optional(),
           observationId: z.string(),
           action: z.enum(['click', 'type', 'key', 'scroll', 'drag']),
           x: z.number().int().optional(),
@@ -878,13 +901,13 @@ export class Agent {
           key: z.string().optional(),
           direction: z.enum(['up', 'down']).optional(),
         }),
-        (a) => this.desktop.input(a),
+        (a) => this.desktop.get(a.desktopId).input(a),
       ),
       tool(
         'desktop_handoff',
         'Hand the desktop to the user, suspending managed AI observation/input for this target while other work continues. The user returns it after reaching a safe screen.',
-        z.object({}),
-        () => this.desktop.handoff('human'),
+        z.object({ desktopId: z.string().optional() }),
+        (a) => this.desktop.get(a.desktopId).handoff('human'),
       ),
     ];
   }

@@ -9,7 +9,7 @@ export type Status = {
   conversations: ReturnType<Store['listConversations']>;
   config: ReturnType<Config['public']>;
   mcp: ReturnType<McpService['status']>;
-  desktop: ReturnType<Desktop['status']>;
+  desktops: ReturnType<Desktop['list']>;
   stopped: boolean;
   providerReady: boolean;
   providerKeySaved: boolean;

@@ -35,13 +35,13 @@ export function createRuntime(options: {
   const { db, sqlite } = openDatabase(join(directory, 'state.sqlite'));
   const store = new Store(db),
     human = new HumanService(store, config, vault),
-    runs = new RunService(store, home, vault);
+    desktop = new Desktop(store, config, vault, { home, directory }),
+    runs = new RunService(store, home, vault, desktop);
   const memory = new MemoryService(join(directory, 'memory.sqlite')),
     changes = new WorkspaceChanges(home, directory),
     files = new Files(home),
     scheduler = new Scheduler(store, runs);
-  const mcp = new McpService(store, config, vault, runs, human, home),
-    desktop = new Desktop(store, config, vault, { home, directory });
+  const mcp = new McpService(store, config, vault, runs, human, home, desktop);
   const mcpInstaller = new McpInstaller(mcp);
   let workspaceReady = false;
   void changes.ready
@@ -62,8 +62,8 @@ export function createRuntime(options: {
     }
     return target === 'provider:main'
       ? verifyProvider(config, vault, revision)
-      : target === 'desktop'
-        ? desktop.verifyCredential(revision)
+      : target.startsWith('desktop:')
+        ? desktop.get(target.slice(8)).verifyCredential(revision)
         : { status: 'unverified', message: '資格情報を保存しました。接続操作で確認できます。' };
   };
   const codex = new CodexAuth(
@@ -160,7 +160,13 @@ export function createRuntime(options: {
         /* Invalid edited configuration is exposed by doctor/model input; keep forms alive. */
       }
     }, 1000);
-    if (!store.stopped && !config.read().desktop) void desktop.prepare().catch(() => {});
+    if (!store.stopped)
+      for (const definition of config.read().desktops)
+        if (definition.kind !== 'external')
+          void desktop
+            .get(definition.id)
+            .prepare()
+            .catch(() => {});
     if (!store.stopped)
       for (const c of config.read().mcp.filter((c) => c.enabled))
         void mcp.connect(c).catch(() => {});

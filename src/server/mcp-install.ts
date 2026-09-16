@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rename, rm } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
-import { mcpSchema } from '../shared/contracts';
+import { mcpSchema, desktopIdSchema } from '../shared/contracts';
 import type { McpService } from './mcp';
 import { shellEnvironment } from './runs';
 
@@ -26,7 +26,7 @@ export const mcpInstallSchema = z
       .optional(),
     args: z.array(z.string().max(4000)).max(50).default([]),
     credentialEnv: mcpSchema.shape.credentialEnv,
-    desktop: z.boolean().default(false),
+    desktopId: desktopIdSchema.optional(),
   })
   .strict();
 
@@ -233,7 +233,7 @@ export class McpInstaller {
               args: input.args,
               enabled: true,
               ...(input.credentialEnv ? { credentialEnv: input.credentialEnv } : {}),
-              ...(input.desktop ? { targetId: 'desktop' } : {}),
+              ...(input.desktopId ? { targetId: `desktop:${input.desktopId}` } : {}),
             },
             true,
           );

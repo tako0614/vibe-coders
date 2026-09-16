@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { providerSchema } from './contracts';
+import { providerSchema, reasoningEffortSchema } from './contracts';
 
 export const providerCredentialSchema = z
   .string()
@@ -14,5 +14,31 @@ export const modelDiscoverySchema = z
     useSavedCredential: z.boolean().default(true),
   })
   .strict();
-export type ModelChoice = { id: string; name: string; isDefault?: boolean };
+export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
+export type ModelChoice = {
+  id: string;
+  name: string;
+  isDefault?: boolean;
+  reasoningEfforts?: ReasoningEffort[];
+  defaultReasoningEffort?: ReasoningEffort;
+};
+export function reasoningChoices(levels: unknown, defaultLevel?: unknown) {
+  if (!Array.isArray(levels)) return {};
+  const reasoningEfforts = [
+    ...new Set(
+      levels.flatMap((v) => {
+        const parsed = reasoningEffortSchema.safeParse(v);
+        return parsed.success ? [parsed.data] : [];
+      }),
+    ),
+  ];
+  const parsed = reasoningEffortSchema.safeParse(defaultLevel);
+  return {
+    reasoningEfforts,
+    ...(parsed.success && reasoningEfforts.includes(parsed.data)
+      ? { defaultReasoningEffort: parsed.data }
+      : {}),
+  };
+}
+
 export const providerUrl = (url: string) => new URL(url).href.replace(/\/+$/, '');

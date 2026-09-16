@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { api, operationId, stateLabel, type Snapshot } from './api';
+import { api, operationId, stateLabel, type Status, type Snapshot } from './api';
 import type { Action } from './App';
 
 export function McpInstall({
   snapshot,
+  status,
   action,
   onRun,
 }: {
   snapshot: Snapshot;
+  status: Status;
   action: Action;
   onRun: () => void;
 }) {
@@ -38,7 +40,7 @@ export function McpInstall({
               ...(data.get('credentialEnv')
                 ? { credentialEnv: String(data.get('credentialEnv')) }
                 : {}),
-              desktop: data.get('desktop') === 'on',
+              ...(data.get('desktopId') ? { desktopId: data.get('desktopId') } : {}),
             });
             form.reset();
           }).finally(() => setBusy(false));
@@ -75,9 +77,16 @@ export function McpInstall({
           認証情報を渡す環境変数名（任意）
           <input name="credentialEnv" placeholder="SERVICE_API_KEY" />
         </label>
-        <label className="checkbox">
-          <input name="desktop" type="checkbox" />
-          共有デスクトップと同じ画面を操作する
+        <label>
+          操作するデスクトップ
+          <select name="desktopId">
+            <option value="">画面に紐づけない</option>
+            {status.desktops.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
         </label>
         <button className="primary" disabled={busy || snapshot.stopped}>
           {busy ? '開始中…' : '導入して接続'}

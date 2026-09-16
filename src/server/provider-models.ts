@@ -1,5 +1,10 @@
 import { Config, Vault } from './config';
-import { modelDiscoverySchema, providerUrl, type ModelChoice } from '../shared/models';
+import {
+  reasoningChoices,
+  modelDiscoverySchema,
+  providerUrl,
+  type ModelChoice,
+} from '../shared/models';
 
 export function savedProviderCredential(config: Config, vault: Vault, baseUrl: string) {
   const current = config.read().provider;
@@ -57,7 +62,20 @@ export async function providerModels(config: Config, vault: Vault, input: unknow
       const name = typeof item.name === 'string' ? item.name.slice(0, 300) : item.id;
       if (/[\r\n\x00-\x1f]/.test(item.id) || (key && (item.id.includes(key) || name.includes(key))))
         continue;
-      models.set(item.id, { id: item.id, name });
+      const efforts =
+        item.reasoning?.supported_efforts === null
+          ? ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+          : item.reasoning?.supported_efforts;
+      models.set(item.id, {
+        id: item.id,
+        name,
+        ...reasoningChoices(
+          Array.isArray(efforts)
+            ? efforts.filter((v: unknown) => !(v === 'none' && item.reasoning?.mandatory))
+            : undefined,
+          item.reasoning?.default_effort,
+        ),
+      });
       if (models.size >= 2000) break;
     }
     return [...models.values()].sort((a, b) => a.name.localeCompare(b.name));

@@ -1,6 +1,6 @@
 # 配布・運用
 
-2026-09-16。**0.2.2はチャット横の作業画面と手動MCP設定を追加しています。npm公開は認証待ち（401）で、公開済み版は0.1.8です。** 0.2.0ではデッキ・複数端末と共通shellを追加し、専用native子実行を廃止しました。検索・直接入力できるモデルpickerと既存Codex認証の再利用にも対応しています。[0.2.2の反映・検証記録](debugging-0.2.2.md)・[shellの仕様と移行](shell-workspace.md)を参照してください。以下のnpmインストール例は公開済み版です。
+2026-09-16。**0.3.0は複数デスクトップとチャットのeffort選択に対応しています。npm公開は認証待ち（401）で、公開済み版は0.1.8です。** 0.2.0ではデッキ・複数端末と共通shellを追加し、専用native子実行を廃止しました。検索・直接入力できるモデルpickerと既存Codex認証の再利用にも対応しています。[0.3.0の反映・検証記録](debugging-0.3.0.md)・[shellの仕様と移行](shell-workspace.md)を参照してください。以下のnpmインストール例は公開済み版です。
 
 ```sh
 npm install -g vibe-coders@0.1.8
@@ -26,7 +26,7 @@ npm pack
 ローカルtarballの導入後は以下の手順です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.2.2.tgz
+npm install -g /path/to/vibe-coders-0.3.0.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -62,7 +62,7 @@ docker compose up -d
 
 この環境ではDockerのAppArmor profileを適用できずビルドが止まりました。通常のDockerホストでの実行はまだ確認していません。
 
-自動接続のVNCはloopbackだけで待ち受け、X11とVNCの認証情報はHomeごとの状態領域に保存します。別のHomeとはポート・画面・Chromeプロファイルを共有しません。終了時は自身が起動したプロセスだけを停止し、異常終了後の再起動もPIDと起動時刻を照合して回収します。
+自動接続のVNCはloopbackだけで待ち受け、X11とVNCの認証情報はHomeごとの状態領域に保存します。追加した仮想デスクトップと別のHomeは、ポート・画面・Chromeプロファイルを共有しません。最初の画面は従来の `computer/`、追加画面は `desktops/<id>/` を使います。終了時は自身が起動したプロセスだけを停止し、異常終了後の再起動もPIDと起動時刻を照合して回収します。
 
 ## OS側の準備
 
@@ -100,3 +100,12 @@ OpenRouter・OpenAI互換APIもチャット内のpickerを使用します。設�
 レスポンスのストリーム終端とツール呼び出しIDを照合し、暗号化された推論コンテキストを同じモデルの次の呼び出しへ渡します。途中で切れた応答のツールは実行しません。401はトークン更新後に一度だけ再試行し、429は利用枠エラーとして表示します。別アカウントやAPI課金への自動切替はしません。
 
 Tiboが紹介した[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)のCodex接続実装と、[公式の認証資料](https://developers.openai.com/codex/auth)を照合しています。このアプリは独立したプロキシサービスを起動せず、必要な接続処理をBunバックエンドで行います。Codexのサブスク向けエンドポイントは通常のOpenAI APIとは異なるため、提供側の変更への追従が必要です。
+
+
+## 複数画面とeffort
+
+チャット横の `＋` から独立した仮想デスクトップを作成します（自動作成はLinux）。選んだ画面の「シェル」から開いた端末には、その画面の `DISPLAY` と `XAUTHORITY` を渡します。「ホスト」は画面に紐づかない従来の端末です。AIは `desktop_status` でIDを調べ、`desktop_create` / `desktop_remove` と各ツールの `desktopId` を使えます。MCPの手動設定にも対象画面の選択があります。
+
+旧設定 `desktop` は初回起動時に `desktops` の `default` へ移行し、操作権・VNC資格情報・MCPの対象を維持します。HTTPは `/api/desktops/:id/...`、資格情報とMCPの対象IDは `desktop:<id>` です。旧単数APIは残しません。削除と接続先変更は、その画面の実行中シェルを停止してから行います。削除前には関連MCPも解除してください。
+
+チャットのモデル名の横からeffortを選ぶと、既存の認証を維持して次の推論へ反映します。自動は指定を送らず、接続先の既定を使います。Codexのネイティブカタログ、OpenRouterの `reasoning.supported_efforts` を使用するため、対応情報を取得できないモデルに推測した選択肢は出しません。モデルを変えるとeffortは自動に戻ります。

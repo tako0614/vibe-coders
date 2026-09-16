@@ -16,29 +16,33 @@ test.skipIf(missingDesktopPackages(true).length > 0)(
     let display = '',
       pids: number[] = [];
     try {
-      expect(r.desktop.status().configured).toBe(false);
-      const host = r.desktop.host!;
+      expect(r.desktop.get().status().configured).toBe(false);
+      const host = r.desktop.get().host!;
       const first = host.prepare(true, false),
         second = host.prepare(true, false);
       expect(first).toBe(second);
       await first;
-      display = r.desktop.target()!.display.slice(1);
-      expect(r.config.read().desktop).toBeUndefined();
-      expect(r.desktop.status().source).toBe('virtual');
-      expect(r.desktop.status().configured).toBe(true);
-      const observation = await r.desktop.screenshot();
+      display = r.desktop.get().target()!.display.slice(1);
+      expect(r.config.read().desktops[0].connection).toBeUndefined();
+      expect(r.desktop.get().status().source).toBe('virtual');
+      expect(r.desktop.get().status().configured).toBe(true);
+      const observation = await r.desktop.get().screenshot();
       expect(observation.width).toBe(1280);
-      const preview = await r.desktop.preview();
+      const preview = await r.desktop.get().preview();
       expect(Buffer.from(preview.image, 'base64').subarray(0, 8).toString('hex')).toBe(
         '89504e470d0a1a0a',
       );
       // Watching from the UI must not consume the agent's last observation.
-      await r.desktop.input({ observationId: observation.id, action: 'click', x: 200, y: 200 });
-      r.desktop.handoff('human');
-      await expect(r.desktop.screenshot()).rejects.toThrow('User owns');
-      await expect(r.desktop.launch('terminal')).rejects.toThrow('User owns');
-      expect((await r.desktop.launch('terminal', undefined, 'human'))?.launched).toBe('terminal');
-      expect((await r.desktop.preview()).image.length).toBeGreaterThan(100);
+      await r.desktop
+        .get()
+        .input({ observationId: observation.id, action: 'click', x: 200, y: 200 });
+      r.desktop.get().handoff('human');
+      await expect(r.desktop.get().screenshot()).rejects.toThrow('User owns');
+      await expect(r.desktop.get().launch('terminal')).rejects.toThrow('User owns');
+      expect((await r.desktop.get().launch('terminal', undefined, 'human'))?.launched).toBe(
+        'terminal',
+      );
+      expect((await r.desktop.get().preview()).image.length).toBeGreaterThan(100);
       // The auto display does not accept clients without its private Xauthority cookie.
       const unauthenticated = Bun.spawn(['xdpyinfo', '-display', `:${display}`], {
         env: { PATH: process.env.PATH, XAUTHORITY: '/dev/null' },
@@ -51,8 +55,8 @@ test.skipIf(missingDesktopPackages(true).length > 0)(
         (p: { pid: number }) => p.pid,
       );
       expect(pids.length).toBeGreaterThanOrEqual(3);
-      expect(r.desktop.credential()).toHaveLength(8);
-      expect(JSON.stringify(r.desktop.status())).not.toContain(r.desktop.credential()!);
+      expect(r.desktop.get().credential()).toHaveLength(8);
+      expect(JSON.stringify(r.desktop.get().status())).not.toContain(r.desktop.get().credential()!);
     } finally {
       await r.dispose();
     }
@@ -77,12 +81,12 @@ test.skipIf(missingDesktopPackages(true).length > 0)(
     try {
       await eventually(() => existsSync(`${r.root}/ready`), 12000);
       const old = JSON.parse(
-        readFileSync(`${r.desktop.host!.directory}/processes.json`, 'utf8'),
+        readFileSync(`${r.desktop.get().host!.directory}/processes.json`, 'utf8'),
       ) as { pid: number }[];
       parent.kill('SIGKILL');
       await parent.exited;
       expect(old.some((p) => existsSync(`/proc/${p.pid}`))).toBe(true);
-      await r.desktop.host!.prepare(true, false);
+      await r.desktop.get().host!.prepare(true, false);
       // Killed orphans may briefly remain zombies until the container's init reaps them.
       for (const { pid } of old) {
         let state = '';
@@ -95,8 +99,8 @@ test.skipIf(missingDesktopPackages(true).length > 0)(
       observer = new DesktopHost(r.home, `${r.root}/viewer`, () => {});
       const previous = { DISPLAY: process.env.DISPLAY, XAUTHORITY: process.env.XAUTHORITY };
       try {
-        process.env.DISPLAY = r.desktop.target()!.display;
-        process.env.XAUTHORITY = `${r.desktop.host!.directory}/Xauthority`;
+        process.env.DISPLAY = r.desktop.get().target()!.display;
+        process.env.XAUTHORITY = `${r.desktop.get().host!.directory}/Xauthority`;
         await observer.prepare(false, false);
       } finally {
         for (const [key, value] of Object.entries(previous)) {
@@ -105,9 +109,9 @@ test.skipIf(missingDesktopPackages(true).length > 0)(
         }
       }
       expect(observer.source).toBe('host');
-      expect(observer.target!.display).toBe(r.desktop.target()!.display);
+      expect(observer.target!.display).toBe(r.desktop.get().target()!.display);
       await observer.close();
-      expect((await r.desktop.screenshot()).width).toBe(1280);
+      expect((await r.desktop.get().screenshot()).width).toBe(1280);
     } finally {
       if (parent.exitCode === null) parent.kill();
       await parent.exited;

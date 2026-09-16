@@ -19,7 +19,8 @@ import { z } from 'zod';
 import {
   providerSchema,
   mcpSchema,
-  desktopSchema,
+  desktopDefinitionSchema,
+  defaultDesktop,
   searchSchema,
   retentionSchema,
 } from '../shared/contracts';
@@ -38,7 +39,15 @@ const hostSchema = z.object({
     .optional(),
   provider: providerSchema.extend({ revision: z.number().int() }).optional(),
   mcp: z.array(mcpSchema.extend({ revision: z.number().int() })).default([]),
-  desktop: desktopSchema.extend({ revision: z.number().int() }).optional(),
+  desktops: z
+    .array(desktopDefinitionSchema.safeExtend({ revision: z.number().int().positive() }))
+    .min(1)
+    .max(16)
+    .refine(
+      (desktops) => new Set(desktops.map((d) => d.id)).size === desktops.length,
+      'Duplicate desktop ID.',
+    )
+    .default([defaultDesktop]),
   search: searchSchema.extend({ revision: z.number().int() }).optional(),
   retention: retentionSchema.optional(),
 });
@@ -134,9 +143,26 @@ export class Config {
     mkdirSync(this.directory, { recursive: true, mode: 0o700 });
   }
   read(): HostConfig {
-    return existsSync(this.path)
-      ? hostSchema.parse(JSON.parse(readFileSync(this.path, 'utf8')))
+    const raw = existsSync(this.path)
+      ? JSON.parse(readFileSync(this.path, 'utf8'))
       : { version: 1, revision: 0, mcp: [] };
+    if (!raw.desktops) {
+      raw.desktops = raw.desktop
+        ? [
+            {
+              id: 'default',
+              name: raw.desktop.name,
+              kind: 'external',
+              connection: (({ revision, ...value }) => value)(raw.desktop),
+              revision: raw.desktop.revision,
+            },
+          ]
+        : [defaultDesktop];
+      raw.mcp = (raw.mcp || []).map((m: any) =>
+        m.targetId === 'desktop' ? { ...m, targetId: 'desktop:default' } : m,
+      );
+    }
+    return hostSchema.parse(raw);
   }
   update(expected: number, fn: (config: HostConfig) => void) {
     return this.lock(() => {
@@ -155,7 +181,8 @@ export class Config {
   targetVersion(id: string) {
     const c = this.read();
     if (id === 'provider:main') return c.provider?.revision;
-    if (id === 'desktop') return c.desktop?.revision;
+    if (id.startsWith('desktop:'))
+      return c.desktops.find((d) => d.id === id.slice(8) && d.kind === 'external')?.revision;
     if (id === 'search') return c.search?.revision;
     if (id.startsWith('oauth-client:'))
       return c.mcp.find(
@@ -170,7 +197,7 @@ export class Config {
       revision: c.revision,
       provider: c.provider,
       mcp: c.mcp,
-      desktop: c.desktop,
+      desktops: c.desktops,
       search: c.search,
       retention: c.retention,
       username: c.web?.username,

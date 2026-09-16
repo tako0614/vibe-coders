@@ -10,7 +10,7 @@ try {
     transport: 'stdio',
     command: 'npx',
     args: ['-y', 'chrome-devtools-mcp@1.9.0', '--browser-url', endpoint],
-    targetId: 'desktop',
+    targetId: 'desktop:default',
     enabled: true,
   });
   const config = r.config.read().mcp.find((m) => m.name === 'browser')!;
@@ -21,10 +21,10 @@ try {
   await eventually(() => !['running', 'stopping'].includes(r.runs.get(run.id).state), 30000);
   assert.equal(r.runs.get(run.id).state, 'completed', JSON.stringify(r.runs.get(run.id).result));
   const before = r.mcp.definitions().length;
-  r.desktop.handoff('human');
+  r.desktop.get().handoff('human');
   assert.equal(r.mcp.definitions().length, 0);
   assert.throws(() => r.mcp.call(r.id, tool.name, {}));
-  r.desktop.handoff('agent');
+  r.desktop.get().handoff('agent');
   await r.mcp.connect(config, r.id);
   assert.ok(r.mcp.definitions().length > 0);
   console.log(

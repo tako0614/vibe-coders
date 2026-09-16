@@ -16,7 +16,18 @@ test('Codex lists models without starting an App Server or initializing its stat
           models: [
             { slug: 'hidden-model', display_name: 'Hidden', visibility: 'hide', priority: 0 },
             { slug: 'model-b', display_name: 'Model B', visibility: 'list', priority: 2 },
-            { slug: 'model-a', display_name: 'Model A', visibility: 'list', priority: 1 },
+            {
+              slug: 'model-a',
+              display_name: 'Model A',
+              visibility: 'list',
+              priority: 1,
+              supported_reasoning_levels: [
+                { effort: 'low' },
+                { effort: 'high' },
+                { effort: 'unknown' },
+              ],
+              default_reasoning_level: 'high',
+            },
           ],
         },
       }),
@@ -30,7 +41,13 @@ test('Codex lists models without starting an App Server or initializing its stat
     );
     const [one, two] = await Promise.all([r.codex.models(), r.codex.models()]);
     expect(one).toEqual([
-      { id: 'model-a', name: 'Model A', isDefault: true },
+      {
+        id: 'model-a',
+        name: 'Model A',
+        isDefault: true,
+        reasoningEfforts: ['low', 'high'],
+        defaultReasoningEffort: 'high',
+      },
       { id: 'model-b', name: 'Model B', isDefault: false },
     ]);
     expect(two).toEqual(one);
@@ -54,7 +71,9 @@ test('a connection can be saved before a model is chosen; queued chat starts aft
     async fetch(request) {
       requests++;
       expect(request.headers.get('authorization')).toBe('Bearer chat-picker-key');
-      expect(((await request.json()) as any).model).toBe('picked-model');
+      const body = (await request.json()) as any;
+      expect(body.model).toBe('picked-model');
+      expect(body.reasoning_effort).toBe('high');
       return new Response(
         [
           { choices: [{ index: 0, delta: { content: 'PICKER_OK' }, finish_reason: null }] },
@@ -80,7 +99,7 @@ test('a connection can be saved before a model is chosen; queued chat starts aft
         headers,
         body: JSON.stringify({
           revision: r.config.read().revision,
-          provider: { ...provider, model },
+          provider: { ...provider, model, reasoningEffort: 'high' },
           ...(credential ? { credential } : {}),
         }),
       });

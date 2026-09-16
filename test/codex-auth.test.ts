@@ -42,7 +42,7 @@ test('Codex sign-in runs independently, keeps private auth out of history, and a
         .some((m) => m.body.role === 'tool' && m.body.content.includes('sha256')),
     ).toBe(true);
     const card = r.human.get(r.codex.status().requestId!);
-    expect(r.desktop.status().owner).toBe('human');
+    expect(r.desktop.get().status().owner).toBe('human');
     expect(() =>
       r.human.answer(card.id, {
         revision: card.revision,
@@ -89,7 +89,7 @@ test('Codex sign-in runs independently, keeps private auth out of history, and a
       .split('\n')
       .map((line) => JSON.parse(line));
     expect(log.filter((row) => row.method === 'turn/start')).toEqual([]);
-    expect(r.desktop.status().owner).toBe('human');
+    expect(r.desktop.get().status().owner).toBe('human');
     expect(JSON.stringify(r.store.snapshot(r.id))).not.toContain('private-account');
   } finally {
     await r.dispose();

@@ -13,7 +13,9 @@ export function executionSurface(
   for (const call of [...calls].reverse()) {
     if (
       /^desktop_(launch|screenshot|input|handoff)$/.test(call.name) ||
-      connections.some((m) => m.targetId === 'desktop' && call.name.startsWith(`mcp_${m.name}_`))
+      connections.some(
+        (m) => m.targetId?.startsWith('desktop:') && call.name.startsWith(`mcp_${m.name}_`),
+      )
     )
       return 'desktop';
     if (call.name === 'terminal_open' || call.name === 'shell_exec') return 'terminal';
@@ -215,4 +217,27 @@ export function executionProgress(
   if (!providerReady && snapshot.messages.some((m) => m.body.role === 'user'))
     return { kind: 'setup', title: 'モデルの接続を確認してください' };
   return null;
+}
+
+export function executionDesktop(
+  snapshot: Snapshot,
+  connections: { name: string; targetId?: string }[],
+) {
+  for (const message of [...snapshot.messages].reverse()) {
+    if (message.body.role === 'user') break;
+    for (const call of [...(message.body.toolCalls || [])].reverse()) {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(call.arguments);
+      } catch {}
+      if (typeof args.desktopId === 'string') return args.desktopId;
+      if (typeof args.id === 'string') {
+        const run = snapshot.runs.find((r) => r.id === args.id);
+        if (run) return run.desktopId || undefined;
+      }
+      if (call.name.startsWith('desktop_')) return 'default';
+      const connection = connections.find((c) => call.name.startsWith(`mcp_${c.name}_`));
+      if (connection?.targetId?.startsWith('desktop:')) return connection.targetId.slice(8);
+    }
+  }
 }

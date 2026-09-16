@@ -589,6 +589,18 @@ try {
     );
     await until(`document.querySelector('.model-label')?.textContent.includes('fixture/beta')`);
     await openModels();
+    await setValue('input[name="model"]', 'fixture/alpha');
+    await clickText('Alpha picker model');
+    await until(`!!document.querySelector('select[aria-label="推論の深さ"]')`);
+    await evaluate(
+      `(()=>{const e=document.querySelector('select[aria-label="推論の深さ"]');e.value='high';e.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+    );
+    await until(
+      `fetch('/api/status').then(r=>r.json()).then(s=>s.config.provider.reasoningEffort==='high')`,
+    );
+    await command('Page.reload', {}, sessionId);
+    await until(`document.querySelector('select[aria-label="推論の深さ"]')?.value==='high'`);
+    await openModels();
     await setValue('input[name="model"]', 'fixture/manual-model');
     await clickText('を使用');
     await until(
@@ -784,6 +796,7 @@ try {
       sessionId,
     );
     await scene('workspace');
+    await evaluate(`document.querySelector('.work-surfaces button').click()`);
     await until(
       `!!document.querySelector('.agent-workbench .terminal-widget') && document.querySelector('.execution-status strong')?.textContent==='シェルで作業中'`,
     );
@@ -794,7 +807,9 @@ try {
     await setValue('.composer textarea', 'このまま作業を続けて');
     await screenshot('workspace-shell');
     if (process.env.VIBE_CODER_TEST_DESKTOP === '1') {
-      await evaluate(`document.querySelectorAll('.workbench-heading [role="tab"]')[1].click()`);
+      await evaluate(`document.querySelector('.desktop-tabs [role="tab"]').click()`);
+      await until(`document.querySelectorAll('.workbench-heading [role="tab"]').length===2`);
+      await evaluate(`document.querySelectorAll('.workbench-heading [role="tab"]')[0].click()`);
       await until(
         `document.querySelector('.agent-workbench .desktop-preview img')?.complete && document.querySelector('.agent-workbench .desktop-preview img')?.naturalWidth > 0`,
         15000,
@@ -804,16 +819,14 @@ try {
       await until(`!!document.querySelector('.agent-workbench .desktop-surface canvas')`, 15000);
       await clickText('安全な画面でAIに返す');
       await until(`!!document.querySelector('.agent-workbench .desktop-preview img')`, 15000);
-      await evaluate(`document.querySelectorAll('.workbench-heading [role="tab"]')[0].click()`);
+      await evaluate(
+        `Array.from(document.querySelectorAll('.desktop-tabs [role="tab"]')).find(b=>b.textContent.includes('ホスト')).click()`,
+      );
       await until(
         `document.querySelector('.agent-workbench [data-run-id]')?.dataset.runId === ${JSON.stringify(workingRun)}`,
       );
     }
-    await evaluate(`document.querySelector('button[aria-label="作業画面を閉じる"]').click()`);
-    await until(`!document.querySelector('.agent-workbench')`);
-    await Bun.sleep(500);
-    if (await evaluate(`!!document.querySelector('.agent-workbench')`))
-      throw Error('Dismissed workbench reopened without new user turn');
+    await evaluate(`document.querySelector('.desktop-tabs [role="tab"]').click()`);
     await evaluate(`document.querySelector('.work-surfaces button').click()`);
     await until(
       `document.querySelector('.agent-workbench [data-run-id]')?.dataset.runId === ${JSON.stringify(workingRun)} && document.querySelector('.composer textarea').value==='このまま作業を続けて'`,
@@ -842,6 +855,45 @@ try {
       { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
       sessionId,
     );
+    await evaluate(`document.querySelector('button[aria-label="デスクトップを追加"]').click()`);
+    await until(`document.querySelectorAll('.desktop-tabs [role="tab"]').length === 3`, 15000);
+    await until(`!!document.querySelector('.agent-workbench .desktop-preview img')`, 20000);
+    const secondId = await evaluate(
+      `fetch('/api/status').then(r=>r.json()).then(s=>s.desktops[1].id)`,
+    );
+    await screenshot('workspace-two-desktops');
+    await clickText('画面を開いて手動操作');
+    await until(`!!document.querySelector('.agent-workbench .desktop-surface canvas')`, 15000);
+    const owners = await evaluate(
+      `fetch('/api/status').then(r=>r.json()).then(s=>s.desktops.map(d=>d.owner))`,
+    );
+    if (owners.join(',') !== 'agent,human') throw Error('Desktop handoff crossed resources');
+    await evaluate(`document.querySelectorAll('.workbench-heading [role="tab"]')[1].click()`);
+    await clickText('ターミナルを開く');
+    await until(`!!document.querySelector('.agent-workbench [data-run-id]')`, 15000);
+    const secondRun = await evaluate(
+      `document.querySelector('.agent-workbench [data-run-id]').dataset.runId`,
+    );
+    if (
+      !(await evaluate(
+        `fetch('/api/runs/'+${JSON.stringify(secondRun)}).then(r=>r.json()).then(r=>r.desktopId===${JSON.stringify(secondId)})`,
+      ))
+    )
+      throw Error('Shell was not bound to selected desktop');
+    await command('Page.reload', {}, sessionId);
+    await until(
+      `document.querySelector('.desktop-tabs [aria-selected="true"]')?.textContent.includes('デスクトップ2')`,
+    );
+    await evaluate(
+      `fetch('/api/runs/'+${JSON.stringify(secondRun)}+'/stop',{method:'POST',headers:{'X-Vibe-Coder':'1','Content-Type':'application/json'},body:'{}'})`,
+    );
+    await until(
+      `fetch('/api/runs/'+${JSON.stringify(secondRun)}).then(r=>r.json()).then(r=>!['running','stopping'].includes(r.state))`,
+    );
+    await evaluate(
+      `fetch('/api/desktops/'+${JSON.stringify(secondId)},{method:'DELETE',headers:{'X-Vibe-Coder':'1'}})`,
+    );
+    await until(`document.querySelectorAll('.desktop-tabs [role="tab"]').length === 2`);
     await scene('running');
     await until(
       `document.querySelector('.execution-status strong')?.textContent==='シェルで作業中'`,
@@ -928,7 +980,7 @@ try {
         'provider config',
         ...(process.env.VIBE_CODER_TEST_MODEL_PORT
           ? [
-              'model picker search, list selection, direct entry, and saved key reuse across model changes',
+              'model picker search, list selection, direct entry, saved key reuse, effort selection and reload persistence',
             ]
           : []),
         'secret form',
@@ -936,6 +988,7 @@ try {
         ...(process.env.VIBE_CODER_TEST_ACTIVITY === '1'
           ? [
               'working/thinking/streaming/input/error/completed states, grouped tools, real pause API, mobile tool menu and Escape',
+              'two desktops, independent human control, bound shell, selected desktop survives reload, removal',
             ]
           : []),
         'mobile drawer/search/Escape, picker bounds and focus, composer auto-height, selected conversation survives reload',

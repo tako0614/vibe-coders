@@ -22,19 +22,26 @@ type Run = Snapshot['runs'][number];
 const active = (run: Run) => ['running', 'stopping'].includes(run.state);
 const interactive = (run: Run) => run.kind === 'terminal' || run.kind === 'shell';
 
-export function TerminalPanel(props: { snapshot: Snapshot; action: Action; compact?: boolean }) {
+export function TerminalPanel(props: {
+  snapshot: Snapshot;
+  action: Action;
+  desktopId?: string | null;
+  compact?: boolean;
+}) {
   return <Workspace key={props.snapshot.conversation.id} {...props} />;
 }
 function Workspace({
   snapshot,
   action,
   compact = false,
+  desktopId,
 }: {
   snapshot: Snapshot;
   action: Action;
+  desktopId?: string | null;
   compact?: boolean;
 }) {
-  const key = `vibe-shell-view:v1:${snapshot.conversation.id}`;
+  const key = `vibe-shell-view:v1:${snapshot.conversation.id}:${desktopId ?? 'host'}`;
   const [view, setView] = useState<{ deck: string; selected: string; maximized: boolean }>(() => {
     try {
       const value = JSON.parse(localStorage.getItem(key) || '{}');
@@ -56,7 +63,12 @@ function Workspace({
   const workspace = snapshot.workspace;
   const deck = workspace.decks.find((d) => d.id === view.deck) || workspace.decks[0];
   const deckOf = (run: Run) => workspace.placements[run.id] || workspace.decks[0].id;
-  const available = snapshot.runs.filter((r) => interactive(r) && !workspace.hidden.includes(r.id));
+  const available = snapshot.runs.filter(
+    (r) =>
+      interactive(r) &&
+      !workspace.hidden.includes(r.id) &&
+      (desktopId === undefined || r.desktopId === desktopId),
+  );
   const deckRuns = available
     .filter((r) => compact || deckOf(r) === deck.id)
     .sort((a, b) => a.createdAt - b.createdAt);
@@ -87,7 +99,7 @@ function Workspace({
     perform(async () => {
       const run = await api<Run>('/runs', 'POST', {
         conversationId: snapshot.conversation.id,
-        spec: { ...spec, deckId: deck.id },
+        spec: { ...spec, deckId: deck.id, ...(desktopId ? { desktopId } : {}) },
       });
       setView((v) => ({ ...v, deck: deck.id, selected: run.id }));
       setCreating(false);

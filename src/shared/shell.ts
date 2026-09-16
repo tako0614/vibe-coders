@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { desktopIdSchema } from './contracts';
 
 export const WORKSPACE_RUN_LIMIT = 2000;
 
@@ -9,6 +10,7 @@ export const shellSchema = z
     cwd: z.string().max(4000).optional(),
     title: z.string().trim().min(1).max(120).optional(),
     deckId: z.string().max(100).optional(),
+    desktopId: desktopIdSchema.optional(),
   })
   .strict()
   .refine((s) => s.mode === 'pty' || !!s.command, 'A pipe run needs a command.');

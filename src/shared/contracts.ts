@@ -112,6 +112,16 @@ export const scheduleSchema = z
       return false;
     }
   }, 'Invalid time zone');
+export const reasoningEffortSchema = z.enum([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+]);
 export const providerSchema = z
   .object({
     kind: z.enum(['openai', 'codex']).optional(),
@@ -127,6 +137,7 @@ export const providerSchema = z
       );
     }, 'Use HTTPS, or HTTP on loopback, without credentials or query parameters.'),
     model: z.string().trim().max(200).default(''),
+    reasoningEffort: reasoningEffortSchema.optional(),
     supportsImages: z.boolean().default(true),
     keyRequired: z.boolean().default(true),
   })
@@ -191,6 +202,26 @@ export const desktopSchema = z
     vncPort: z.number().int().min(1).max(65535),
   })
   .strict();
+export const desktopIdSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/);
+export const desktopDefinitionSchema = z
+  .object({
+    id: desktopIdSchema,
+    name: z.string().trim().min(1).max(100),
+    kind: z.enum(['auto', 'virtual', 'external']),
+    connection: desktopSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (v) => (v.kind === 'external') === !!v.connection,
+    'External desktops require connection settings.',
+  );
+export const defaultDesktop = {
+  id: 'default',
+  name: 'デスクトップ1',
+  kind: 'auto' as const,
+  revision: 1,
+};
+
 export const searchSchema = z
   .object({
     engine: z.enum(['searxng', 'brave']),

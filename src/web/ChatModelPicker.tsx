@@ -67,7 +67,7 @@ export function ChatModelPicker({
     };
   }, [open]);
   useEffect(() => {
-    if (!open || !ready) return;
+    if (!ready) return;
     let current = true;
     setLoading(true);
     setError('');
@@ -89,7 +89,7 @@ export function ChatModelPicker({
     return () => {
       current = false;
     };
-  }, [open, ready, codex, provider?.baseUrl, provider?.revision, reload]);
+  }, [ready, codex, provider?.baseUrl, provider?.revision, reload]);
   const choose = (model: string) => {
     if (saving || working || !ready) return;
     if (model === provider?.model) return close();
@@ -115,6 +115,19 @@ export function ChatModelPicker({
       }
     });
   };
+  const choice = models.find((m) => m.id === provider?.model);
+  const efforts = choice?.reasoningEfforts || [];
+  const setEffort = (reasoningEffort: string) => {
+    if (!provider || saving || working) return;
+    setSaving(true);
+    void action(async () => {
+      const { revision: _revision, reasoningEffort: _effort, ...value } = provider;
+      await api('/config/provider', 'PUT', {
+        revision: status.config.revision,
+        provider: { ...value, ...(reasoningEffort ? { reasoningEffort } : {}) },
+      });
+    }).finally(() => setSaving(false));
+  };
   return (
     <>
       <button
@@ -131,6 +144,29 @@ export function ChatModelPicker({
         <span>{provider?.model || 'モデルを選択'}</span>
         <ChevronDown size={14} />
       </button>
+      {(efforts.length > 0 || provider?.reasoningEffort) && (
+        <label className="effort-picker">
+          <span>Effort</span>
+          <select
+            aria-label="推論の深さ"
+            value={provider?.reasoningEffort || ''}
+            disabled={working || saving || loading}
+            onChange={(e) => setEffort(e.target.value)}
+          >
+            <option value="">
+              自動{choice?.defaultReasoningEffort ? ` (${choice.defaultReasoningEffort})` : ''}
+            </option>
+            {provider?.reasoningEffort && !efforts.includes(provider.reasoningEffort) && (
+              <option value={provider.reasoningEffort}>{provider.reasoningEffort}（保存値）</option>
+            )}
+            {efforts.map((effort) => (
+              <option key={effort} value={effort}>
+                {effort}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {open && (
         <dialog
           ref={dialog}

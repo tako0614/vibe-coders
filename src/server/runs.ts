@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { eq, inArray } from 'drizzle-orm';
 import { runs } from './db/schema';
+import type { Desktop } from './desktop';
 import { Store } from './store';
 import { Vault } from './config';
 import { shellSchema, WORKSPACE_RUN_LIMIT } from '../shared/shell';
@@ -66,7 +67,57 @@ export class RunService {
     readonly store: Store,
     readonly home: string,
     readonly vault: Vault,
-  ) {}
+    readonly desktops?: Desktop,
+  ) {
+    store.changes.on('change', this.checkDesktops);
+  }
+  private desktopEpochs = new Map<string, number>();
+  private checkDesktops = () => {
+    for (const id of new Set([...this.live.keys(), ...this.endedOutput.keys()])) {
+      const live = this.live.get(id);
+      const row = this.get(id);
+      if (!row.desktopId || !this.desktops) continue;
+      let epoch: number;
+      try {
+        epoch = this.desktops.get(row.desktopId).status().epoch;
+      } catch {
+        continue;
+      }
+      const previous = this.desktopEpochs.get(id);
+      this.desktopEpochs.set(id, epoch);
+      if (previous === undefined || previous === epoch) continue;
+      this.endedOutput.delete(id);
+      if (live) {
+        live.offset += live.output.length;
+        live.output = '';
+        live.redactionPending = '';
+        live.screen?.reset();
+      }
+      this.store.db
+        .update(runs)
+        .set({ output: '', outputOffset: live?.offset ?? row.outputOffset, epoch: row.epoch + 1 })
+        .where(eq(runs.id, id))
+        .run();
+      this.output.emit(id);
+    }
+  };
+  private privateOutput(row: ReturnType<RunService['get']>) {
+    if (row.owner === 'human') return true;
+    if (!row.desktopId || !this.desktops) return false;
+    try {
+      return this.desktops.get(row.desktopId).status().owner === 'human';
+    } catch {
+      return true;
+    }
+  }
+  private assertDesktop(row: ReturnType<RunService['get']>, actor: 'human' | 'agent') {
+    if (
+      actor === 'agent' &&
+      row.desktopId &&
+      this.desktops?.get(row.desktopId).status().owner === 'human'
+    )
+      throw new Error('User owns this desktop; managed shell access is suspended.');
+  }
   get(id: string) {
     const row = this.store.db.select().from(runs).where(eq(runs.id, id)).get();
     if (!row) throw new Error('Run not found.');
@@ -77,6 +128,7 @@ export class RunService {
     kind: 'shell' | 'terminal' | 'mcp',
     title: string,
     cwd?: string,
+    desktopId?: string,
   ) {
     this.store.assertEnabled();
     this.store.conversation(conversationId);
@@ -85,6 +137,7 @@ export class RunService {
       .values({
         id: crypto.randomUUID(),
         conversationId,
+        desktopId,
         kind,
         title: this.vault.redact(title),
         cwd: resolve(this.home, cwd || '.'),
@@ -102,7 +155,7 @@ export class RunService {
     if (!live) return;
     // Human-owned output is ephemeral and visible only to the authenticated owner.
     // Agent-owned output buffers only an actual possible secret prefix.
-    const humanOwned = this.get(id).owner === 'human';
+    const humanOwned = this.privateOutput(this.get(id));
     const value = (live.redactionPending || '') + text;
     const safe = humanOwned ? { text: value, pending: '' } : this.vault.redactStream(value, final);
     text = safe.text;
@@ -125,7 +178,7 @@ export class RunService {
   private flush(id: string) {
     const l = this.live.get(id);
     if (!l) return;
-    if (this.get(id).owner !== 'human')
+    if (!this.privateOutput(this.get(id)))
       this.store.db
         .update(runs)
         .set({ output: l.output, outputOffset: l.offset })
@@ -139,7 +192,7 @@ export class RunService {
     clearTimeout(live.timer);
     this.flush(id);
     live.screen?.dispose();
-    if (this.get(id).owner === 'human') {
+    if (this.privateOutput(this.get(id))) {
       this.endedOutput.set(id, { output: live.output, offset: live.offset });
       if (this.endedOutput.size > 32)
         this.endedOutput.delete(this.endedOutput.keys().next().value!);
@@ -177,6 +230,9 @@ export class RunService {
       process.platform === 'win32'
         ? process.env.ComSpec || 'cmd.exe'
         : process.env.SHELL || '/bin/bash';
+    const env = spec.desktopId
+      ? this.desktops!.get(spec.desktopId).environment(owner)
+      : shellEnvironment();
     const run =
       spec.mode === 'pty'
         ? this.terminal(
@@ -189,8 +245,13 @@ export class RunService {
                 ]
               : undefined,
             spec.cwd,
+            100,
+            30,
+            { env, desktopId: spec.desktopId },
           )
-        : this.shell(conversationId, spec.command!, spec.cwd);
+        : this.shell(conversationId, spec.command!, spec.cwd, { env, desktopId: spec.desktopId });
+    if (spec.desktopId)
+      this.desktopEpochs.set(run.id, this.desktops!.get(spec.desktopId).status().epoch);
     if (spec.title) this.rename(run.id, spec.title);
     if (spec.deckId)
       this.store.updateWorkspace(conversationId, {
@@ -210,8 +271,13 @@ export class RunService {
     this.store.notify();
     return this.get(id);
   }
-  shell(conversationId: string, command: string, cwd?: string) {
-    const row = this.create(conversationId, 'shell', command, cwd);
+  shell(
+    conversationId: string,
+    command: string,
+    cwd?: string,
+    context?: { env: Record<string, string>; desktopId?: string },
+  ) {
+    const row = this.create(conversationId, 'shell', command, cwd, context?.desktopId);
     let child: ChildProcess;
     try {
       child = spawn(
@@ -221,7 +287,7 @@ export class RunService {
         process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-lc', command],
         {
           cwd: row.cwd,
-          env: shellEnvironment(),
+          env: context?.env || shellEnvironment(),
           detached: process.platform !== 'win32',
           stdio: ['pipe', 'pipe', 'pipe'],
         },
@@ -262,18 +328,31 @@ export class RunService {
     child.once('close', (code) => this.finish(row.id, code));
     return row;
   }
-  terminal(conversationId: string, command?: string[], cwd?: string, cols = 100, rows = 30) {
+  terminal(
+    conversationId: string,
+    command?: string[],
+    cwd?: string,
+    cols = 100,
+    rows = 30,
+    context?: { env: Record<string, string>; desktopId?: string },
+  ) {
     const defaultShell =
       process.platform === 'win32'
         ? process.env.ComSpec || 'cmd.exe'
         : process.env.SHELL || '/bin/bash';
-    const row = this.create(conversationId, 'terminal', (command || [defaultShell]).join(' '), cwd);
+    const row = this.create(
+      conversationId,
+      'terminal',
+      (command || [defaultShell]).join(' '),
+      cwd,
+      context?.desktopId,
+    );
     const decoder = new StringDecoder('utf8');
     const screen = new HeadlessTerminal({ cols, rows, allowProposedApi: true, scrollback: 2000 });
     this.live.set(row.id, { kill() {}, output: '', offset: 0, screen });
     const respond = (text: string) => {
       const live = this.live.get(row.id);
-      if (live?.write && this.get(row.id).owner === 'agent') {
+      if (live?.write && !this.privateOutput(this.get(row.id))) {
         try {
           live.write(text);
         } catch {
@@ -299,7 +378,7 @@ export class RunService {
         const program = command || [defaultShell];
         const child = pty.spawn(program[0], program.slice(1), {
           cwd: row.cwd,
-          env: shellEnvironment(),
+          env: context?.env || shellEnvironment(),
           cols,
           rows,
           name: 'xterm-256color',
@@ -323,7 +402,7 @@ export class RunService {
       });
       const proc = Bun.spawn(command || [defaultShell, '-i'], {
         cwd: row.cwd,
-        env: shellEnvironment(),
+        env: context?.env || shellEnvironment(),
         detached: true,
         terminal,
       });
@@ -357,8 +436,9 @@ export class RunService {
     ) => Promise<Record<string, unknown>>,
     kind: 'mcp' = 'mcp',
     cwd?: string,
+    desktopId?: string,
   ) {
-    const row = this.create(conversationId, kind, title, cwd),
+    const row = this.create(conversationId, kind, title, cwd, desktopId),
       controller = new AbortController();
     this.live.set(row.id, { output: '', offset: 0, kill: () => controller.abort() });
     // Long external calls, including elicitation, never retain the parent loop.
@@ -399,6 +479,7 @@ export class RunService {
   }
   read(id: string, offset = 0, limit = 16000, asAgent = false) {
     const row = this.get(id);
+    if (asAgent) this.assertDesktop(row, 'agent');
     if (asAgent && row.owner === 'human')
       throw new Error('This terminal is handed to the user; observation is suspended.');
     const live = this.live.get(id),
@@ -427,12 +508,14 @@ export class RunService {
   }
   async screen(id: string) {
     const row = this.get(id);
+    this.assertDesktop(row, 'agent');
     if (row.owner === 'human') throw new Error('User owns this terminal.');
     const live = this.live.get(id);
     if (!live?.screen) throw new Error('No live PTY screen.');
     await live.flushed;
     if (this.get(id).owner !== 'agent' || this.get(id).epoch !== row.epoch)
       throw new Error('Ownership changed during terminal observation.');
+    this.assertDesktop(this.get(id), 'agent');
     const b = live.screen.buffer.active;
     return {
       text: Array.from(
@@ -449,6 +532,7 @@ export class RunService {
     this.store.assertEnabled();
     const row = this.get(id),
       live = this.live.get(id);
+    this.assertDesktop(row, actor);
     if (row.epoch !== epoch || row.owner !== actor)
       throw new Error('Terminal ownership changed. Observe it again.');
     if (row.state !== 'running' || !live?.write) throw new Error('No live writable process.');
@@ -458,6 +542,7 @@ export class RunService {
     this.store.assertEnabled();
     const row = this.get(id),
       live = this.live.get(id);
+    this.assertDesktop(row, actor);
     if (row.owner !== actor || row.epoch !== epoch) throw new Error('Process ownership changed.');
     if (row.state !== 'running' || !live?.endInput) throw new Error('No open pipe input.');
     live.endInput();
@@ -492,6 +577,7 @@ export class RunService {
   }
   resize(id: string, cols: number, rows: number, actor: 'human' | 'agent' = 'human') {
     this.store.assertEnabled();
+    this.assertDesktop(this.get(id), actor);
     if (this.get(id).owner !== actor) throw new Error('Terminal ownership changed.');
     const live = this.live.get(id);
     if (!live?.resize) throw new Error('No live PTY.');
@@ -550,6 +636,7 @@ export class RunService {
     this.live.clear();
     this.endedOutput.clear();
     this.output.removeAllListeners();
+    this.store.changes.off('change', this.checkDesktops);
   }
   recover() {
     for (const r of this.store.db

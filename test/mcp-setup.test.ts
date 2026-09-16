@@ -185,11 +185,11 @@ test('desktop handoff cancels MCP initialization before tools can appear', async
       name: 'desktop_tools',
       transport: 'stdio',
       command: delayed,
-      targetId: 'desktop',
+      targetId: 'desktop:default',
     });
     const run = r.mcp.connectRun(r.id, 'desktop_tools');
     await eventually(() => r.mcp.status()[0].state === 'connecting');
-    r.desktop.handoff('human');
+    r.desktop.get().handoff('human');
     await eventually(() => r.runs.get(run.id).state === 'failed');
     expect(r.mcp.definitions()).toEqual([]);
     expect(r.mcp.status()[0].state).toBe('disconnected');

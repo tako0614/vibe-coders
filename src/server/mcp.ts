@@ -1,3 +1,4 @@
+import type { Desktop } from './desktop';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -37,8 +38,18 @@ export class McpService {
     readonly runs: RunService,
     readonly human: HumanService,
     readonly home: string,
+    readonly desktops: Desktop,
   ) {
     store.changes.on('change', this.checkOwnership);
+  }
+  private desktopAllowed(config: McpConfig, epoch?: number) {
+    if (!config.targetId?.startsWith('desktop:')) return true;
+    try {
+      const s = this.desktops.get(config.targetId.slice(8)).status();
+      return s.owner === 'agent' && (epoch === undefined || epoch === s.epoch);
+    } catch {
+      return false;
+    }
   }
   private checkOwnership = () => {
     let configured: McpConfig[] = [];
@@ -54,9 +65,7 @@ export class McpService {
           (item) =>
             item.name === c.config.name && item.enabled && item.revision === c.config.revision,
         ) ||
-        (c.config.targetId === 'desktop' &&
-          (this.store.get<string>('desktopOwner', 'agent') === 'human' ||
-            (c.epoch !== undefined && c.epoch !== this.store.get('desktopEpoch', 0))))
+        !this.desktopAllowed(c.config, c.epoch)
       ) {
         c.abort?.abort();
         c.tools = [];
@@ -83,6 +92,8 @@ export class McpService {
   configure(revision: number, input: unknown, createOnly = false) {
     this.store.assertEnabled();
     const connection = mcpSchema.parse(input);
+    if (connection.targetId?.startsWith('desktop:'))
+      this.desktops.get(connection.targetId.slice(8));
     const next = this.config.update(revision, (config) => {
       const old = config.mcp.find((item) => item.name === connection.name);
       if (old && createOnly)
@@ -97,12 +108,19 @@ export class McpService {
   connectRun(conversationId: string, name: string) {
     const connection = this.config.read().mcp.find((item) => item.name === name);
     if (!connection) throw new Error('MCP not found.');
-    return this.runs.managed(conversationId, `Connect ${name}`, async (signal) => {
-      await this.connect(connection, conversationId, signal);
-      const status = this.status().find((item) => item.name === name);
-      if (!status) throw new Error('MCP was removed.');
-      return status;
-    });
+    return this.runs.managed(
+      conversationId,
+      `Connect ${name}`,
+      async (signal) => {
+        await this.connect(connection, conversationId, signal);
+        const status = this.status().find((item) => item.name === name);
+        if (!status) throw new Error('MCP was removed.');
+        return status;
+      },
+      'mcp',
+      this.home,
+      connection.targetId?.startsWith('desktop:') ? connection.targetId.slice(8) : undefined,
+    );
   }
   async remove(revision: number, name: string) {
     this.config.update(revision, (config) => {
@@ -124,17 +142,19 @@ export class McpService {
         .mcp.some((item) => item.name === config.name && item.revision === config.revision)
     )
       throw new Error('MCP configuration changed. Read connections_list before reconnecting.');
-    if (
-      config.targetId === 'desktop' &&
-      this.store.get<string>('desktopOwner', 'agent') === 'human'
-    )
-      throw new Error('User owns this desktop.');
+    if (!this.desktopAllowed(config)) throw new Error('User owns this desktop or it was removed.');
+    const desktop = config.targetId?.startsWith('desktop:')
+      ? this.desktops.get(config.targetId.slice(8))
+      : undefined;
+    if (desktop) await desktop.prepare();
     await this.disconnect(config.name);
     this.store.assertEnabled();
     signal?.throwIfAborted();
     if (!config.enabled) return;
+    if (!this.desktopAllowed(config))
+      throw new Error('Desktop ownership changed during connection setup.');
     const client = new Client(
-      { name: 'vibe-coders', version: '0.2.2' },
+      { name: 'vibe-coders', version: '0.3.0' },
       { capabilities: { elicitation: { form: {}, url: {} } } },
     );
     const c: Connection = {
@@ -144,7 +164,7 @@ export class McpService {
       tools: [],
       rawNames: new Map(),
       queue: Promise.resolve(),
-      epoch: this.store.get('desktopEpoch', 0),
+      epoch: desktop?.status().epoch,
     };
     this.connections.set(config.name, c);
     this.store.notify();
@@ -292,7 +312,7 @@ export class McpService {
               args: config.args,
               cwd: this.home,
               env: {
-                ...shellEnvironment(),
+                ...(desktop ? desktop.environment('agent') : shellEnvironment()),
                 ...(key && config.credentialEnv ? { [config.credentialEnv]: key } : {}),
               },
               stderr: 'pipe',
@@ -406,47 +426,48 @@ export class McpService {
     );
     if (!c) throw new Error('MCP tool is not connected. Refresh its connection.');
     const rawName = c.rawNames.get(name)!;
-    const epoch = this.store.get('desktopEpoch', 0);
+    const epoch = c.epoch;
     const check = () => {
       this.store.assertEnabled();
-      if (
-        c.config.targetId === 'desktop' &&
-        (this.store.get<string>('desktopOwner', 'agent') === 'human' ||
-          this.store.get('desktopEpoch', 0) !== epoch)
-      )
-        throw new Error('Desktop ownership changed.');
+      if (!this.desktopAllowed(c.config, epoch)) throw new Error('Desktop ownership changed.');
       if (this.config.targetVersion(`mcp:${c.config.name}`) !== c.config.revision)
         throw new Error('MCP configuration changed.');
     };
     check();
-    return this.runs.managed(conversationId, `${c.config.name}: ${rawName}`, async (signal) => {
-      const previous = c.queue;
-      let release!: () => void;
-      c.queue = new Promise<void>((r) => {
-        release = r;
-      });
-      try {
-        await previous;
-        signal.throwIfAborted();
-        check();
-        c.activeConversation = conversationId;
-        c.epoch = epoch;
-        c.abort = new AbortController();
-        const result = await c.client.callTool({ name: rawName, arguments: args }, undefined, {
-          signal: AbortSignal.any([signal, c.abort.signal]),
-          timeout: 30 * 60 * 1000,
+    return this.runs.managed(
+      conversationId,
+      `${c.config.name}: ${rawName}`,
+      async (signal) => {
+        const previous = c.queue;
+        let release!: () => void;
+        c.queue = new Promise<void>((r) => {
+          release = r;
         });
-        check();
-        if (JSON.stringify(result).length > 4 * 1024 * 1024)
-          throw new Error('MCP result exceeds 4 MiB.');
-        return result as Record<string, unknown>;
-      } finally {
-        c.abort = undefined;
-        c.epoch = undefined;
-        c.activeConversation = undefined;
-        release();
-      }
-    });
+        try {
+          await previous;
+          signal.throwIfAborted();
+          check();
+          c.activeConversation = conversationId;
+          c.epoch = epoch;
+          c.abort = new AbortController();
+          const result = await c.client.callTool({ name: rawName, arguments: args }, undefined, {
+            signal: AbortSignal.any([signal, c.abort.signal]),
+            timeout: 30 * 60 * 1000,
+          });
+          check();
+          if (JSON.stringify(result).length > 4 * 1024 * 1024)
+            throw new Error('MCP result exceeds 4 MiB.');
+          return result as Record<string, unknown>;
+        } finally {
+          c.abort = undefined;
+          c.activeConversation = undefined;
+          release();
+        }
+      },
+      'mcp',
+      this.home,
+      c.config.targetId?.startsWith('desktop:') ? c.config.targetId.slice(8) : undefined,
+    );
   }
   async disconnect(name: string) {
     const c = this.connections.get(name);

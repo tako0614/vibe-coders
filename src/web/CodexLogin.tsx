@@ -142,7 +142,11 @@ export function CodexLogin({
         {!busy && auth?.ready && auth.desktopOwner === 'human' && (
           <button
             type="button"
-            onClick={() => void action(() => api('/desktop/handoff', 'POST', { owner: 'agent' }))}
+            onClick={() =>
+              void action(() =>
+                api(`/desktops/${auth.desktopId}/handoff`, 'POST', { owner: 'agent' }),
+              )
+            }
           >
             ブラウザ・画面操作をAIに戻す
           </button>

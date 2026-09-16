@@ -12,7 +12,7 @@ describe('authenticated API boundaries', () => {
         '/api/status',
         '/api/files?path=.',
         '/api/memory',
-        '/api/desktop/socket',
+        '/api/desktops/default/socket',
         '/',
         '/assets/app.js',
       ])
@@ -74,35 +74,39 @@ describe('authenticated API boundaries', () => {
     };
     try {
       expect(
-        (await app.request('/api/desktop/ticket', { method: 'POST', headers, body: '{}' })).status,
+        (await app.request('/api/desktops/default/ticket', { method: 'POST', headers, body: '{}' }))
+          .status,
       ).toBe(400);
-      r.config.update(r.config.read().revision, (c) => {
-        c.desktop = {
-          revision: 1,
-          name: 'Test',
-          display: ':77',
-          vncHost: '127.0.0.1',
-          vncPort: 5900,
-        };
+      await r.desktop.update(r.config.read().revision, {
+        id: 'default',
+        name: 'Test',
+        kind: 'external',
+        connection: { name: 'Test', display: ':77', vncHost: '127.0.0.1', vncPort: 5900 },
       });
-      r.desktop.handoff('human');
+      r.desktop.get().handoff('human');
       const ticket = (await (
-        await app.request('/api/desktop/ticket', { method: 'POST', headers, body: '{}' })
+        await app.request('/api/desktops/default/ticket', { method: 'POST', headers, body: '{}' })
       ).json()) as { ticket: string };
       expect(
         (
-          await app.request(`/api/desktop/socket?ticket=${ticket.ticket}`, {
+          await app.request(`/api/desktops/default/socket?ticket=${ticket.ticket}`, {
             headers: { Authorization: auth, Origin: 'https://hostile.example' },
           })
         ).status,
       ).toBe(403);
-      r.desktop.handoff('agent');
+      r.desktop.get().handoff('agent');
       expect(
-        (await app.request(`/api/desktop/socket?ticket=${ticket.ticket}`, { headers })).status,
+        (await app.request(`/api/desktops/default/socket?ticket=${ticket.ticket}`, { headers }))
+          .status,
       ).toBe(403);
       expect(
-        (await app.request('/api/desktop/credential', { method: 'POST', headers, body: '{}' }))
-          .status,
+        (
+          await app.request('/api/desktops/default/credential', {
+            method: 'POST',
+            headers,
+            body: '{}',
+          })
+        ).status,
       ).toBe(400);
     } finally {
       await r.dispose();

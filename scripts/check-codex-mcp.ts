@@ -22,7 +22,7 @@ try {
   assert((await r.codex.refresh()).subscriptionReady, 'Sign into Codex first.');
   r.agent.submit(
     r.id,
-    `Verify the parent MCP setup in this temporary test repository. Use environment_inspect to locate npx. Then use mcp_add to register this exact nonsecret connection: ${JSON.stringify({ name: 'qa_browser', transport: 'stdio', command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.9.0', '--browser-url', endpoint], targetId: 'desktop', enabled: true })}. Wait for discovery using agent_wait when necessary. Once discovered, invoke qa_browser/list_pages through the actual new MCP tool. Wait for its completion and read its run result. Finally report the observed page count. This Chrome is dedicated to this test. Do not open or close pages, do not change browser profiles, do not read other directories, and do not use shell_exec, schedules or delegation.`,
+    `Verify the parent MCP setup in this temporary test repository. Use environment_inspect to locate npx. Then use mcp_add to register this exact nonsecret connection: ${JSON.stringify({ name: 'qa_browser', transport: 'stdio', command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.9.0', '--browser-url', endpoint], targetId: 'desktop:default', enabled: true })}. Wait for discovery using agent_wait when necessary. Once discovered, invoke qa_browser/list_pages through the actual new MCP tool. Wait for its completion and read its run result. Finally report the observed page count. This Chrome is dedicated to this test. Do not open or close pages, do not change browser profiles, do not read other directories, and do not use shell_exec, schedules or delegation.`,
     crypto.randomUUID(),
   );
   await eventually(

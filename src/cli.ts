@@ -149,7 +149,14 @@ async function main() {
     const desktop = desktopSchema.parse(JSON.parse(await Bun.stdin.text())),
       current = config.read();
     config.update(current.revision, (c) => {
-      c.desktop = { ...desktop, revision: (c.desktop?.revision || 0) + 1 };
+      const first = c.desktops[0];
+      c.desktops[0] = {
+        id: first.id,
+        name: desktop.name,
+        kind: 'external',
+        connection: desktop,
+        revision: first.revision + 1,
+      };
     });
     console.log(JSON.stringify({ saved: true }));
     return;
@@ -214,13 +221,7 @@ async function main() {
               'google-chrome',
             ].map((t) => [t, !!Bun.which(t)]),
           ),
-          desktop: config.public().desktop || {
-            mode: 'automatic',
-            platform: process.platform,
-            display: process.env.DISPLAY || null,
-            message:
-              'Connects the installed host display; headless Linux starts a private virtual desktop.',
-          },
+          desktops: config.public().desktops,
         },
         null,
         2,

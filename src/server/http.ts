@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import {
   providerSchema,
   mcpSchema,
+  desktopDefinitionSchema,
   desktopSchema,
   searchSchema,
   retentionSchema,
@@ -31,7 +32,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     app = new Hono(),
     { upgradeWebSocket, websocket } = createBunWebSocket();
   const authCache = new Map<string, number>();
-  const tickets = new Map<string, { expires: number; epoch: number }>();
+  const tickets = new Map<string, { desktopId: string; expires: number; epoch: number }>();
   // OAuth redirects come from another origin. This one route authenticates with
   // a durable, expiring, one-use state bound to the target revision and PKCE.
   app.get('/api/mcp/oauth/callback', async (c) => {
@@ -76,13 +77,17 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       c.req.query('ticket') || '',
       c.req.header('Origin'),
     );
-    if (c.req.path === '/api/desktop/socket') {
+    const desktopSocket = /^\/api\/desktops\/([^/]+)\/socket$/.exec(c.req.path);
+    if (desktopSocket) {
       const ticket = tickets.get(c.req.query('ticket') || '');
+      const status = r.desktop.list().find((d) => d.id === desktopSocket[1]);
       allowed =
         !!ticket &&
+        ticket.desktopId === desktopSocket[1] &&
+        !!status &&
         ticket.expires > Date.now() &&
-        ticket.epoch === r.desktop.status().epoch &&
-        r.desktop.status().owner === 'human' &&
+        ticket.epoch === status.epoch &&
+        status.owner === 'human' &&
         c.req.header('Origin') === origin() &&
         !r.store.stopped;
     }
@@ -144,7 +149,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       conversations: r.store.listConversations(),
       config: r.config.public(),
       mcp: r.mcp.status(),
-      desktop: r.desktop.status(),
+      desktops: r.desktop.list(),
       stopped: r.store.stopped,
       codex: r.codex.status(),
       providerKeySaved:
@@ -259,14 +264,16 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     const { revision, search } = z
       .object({ revision: z.number().int(), search: searchSchema })
       .parse(await c.req.json());
-    return c.json(updateSettings(r, { revision, change: { section: 'search', value: search } }));
+    return c.json(
+      await updateSettings(r, { revision, change: { section: 'search', value: search } }),
+    );
   });
   app.put('/api/config/retention', async (c) => {
     const { revision, retention } = z
       .object({ revision: z.number().int(), retention: retentionSchema })
       .parse(await c.req.json());
     return c.json(
-      updateSettings(r, { revision, change: { section: 'retention', value: retention } }),
+      await updateSettings(r, { revision, change: { section: 'retention', value: retention } }),
     );
   });
   app.post('/api/retention/prune', (c) => c.json(prune(r.store, r.config)));
@@ -303,6 +310,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       .object({ conversationId: z.string(), spec: shellSchema })
       .strict()
       .parse(await c.req.json());
+    if (body.spec.desktopId) await r.desktop.get(body.spec.desktopId).prepare();
     return c.json(r.runs.start(body.conversationId, body.spec, 'human'), 201);
   });
   app.put('/api/conversations/:id/workspace', async (c) =>
@@ -435,12 +443,11 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
         fields: [
           {
             name: 'credential',
-            label:
-              targetId === 'desktop'
-                ? 'VNCパスワード'
-                : targetId.startsWith('oauth-client:')
-                  ? 'OAuthクライアントシークレット'
-                  : 'APIキー / トークン',
+            label: targetId.startsWith('desktop:')
+              ? 'VNCパスワード'
+              : targetId.startsWith('oauth-client:')
+                ? 'OAuthクライアントシークレット'
+                : 'APIキー / トークン',
             type: 'secret',
             required: true,
           },
@@ -483,70 +490,105 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     return c.json(r.codex.start(conversationId, method, true), 202);
   });
   app.post('/api/codex/auth/cancel', async (c) => c.json(await r.codex.cancel()));
-  app.put('/api/config/desktop', async (c) => {
-    const { revision, desktop } = z
-      .object({ revision: z.number().int(), desktop: desktopSchema })
+  app.post('/api/desktops', async (c) => {
+    const input = z
+      .object({
+        name: z.string().trim().min(1).max(100),
+        kind: z.enum(['virtual', 'external']).default('virtual'),
+        connection: desktopSchema.optional(),
+      })
+      .strict()
       .parse(await c.req.json());
-    return c.json(updateSettings(r, { revision, change: { section: 'desktop', value: desktop } }));
+    const desktop = r.desktop.create(input.name, input.kind, input.connection);
+    if (input.kind === 'virtual')
+      void r.desktop
+        .get(desktop.id)
+        .prepare()
+        .catch(() => {});
+    return c.json(desktop, 201);
   });
-  app.post('/api/desktop/prepare', async (c) => c.json(await r.desktop.prepare()));
-  app.get('/api/desktop/preview', async (c) => c.json(await r.desktop.preview()));
-  app.post('/api/desktop/launch', async (c) => {
+  app.put('/api/desktops/:id', async (c) => {
+    const { revision, desktop } = z
+      .object({ revision: z.number().int(), desktop: desktopDefinitionSchema })
+      .strict()
+      .parse(await c.req.json());
+    if (desktop.id !== c.req.param('id')) throw new Error('Desktop ID mismatch.');
+    return c.json(await r.desktop.update(revision, desktop));
+  });
+  app.delete('/api/desktops/:id', async (c) => {
+    await r.desktop.remove(c.req.param('id'));
+    return c.json({ removed: true });
+  });
+  app.post('/api/desktops/:id/prepare', async (c) =>
+    c.json(await r.desktop.get(c.req.param('id')).prepare()),
+  );
+  app.get('/api/desktops/:id/preview', async (c) =>
+    c.json(await r.desktop.get(c.req.param('id')).preview()),
+  );
+  app.post('/api/desktops/:id/launch', async (c) => {
     const { app, url } = z
       .object({ app: z.enum(['browser', 'terminal']), url: z.url().optional() })
       .parse(await c.req.json());
-    return c.json(await r.desktop.launch(app, url, 'human'));
+    return c.json(await r.desktop.get(c.req.param('id')).launch(app, url, 'human'));
   });
-  app.post('/api/desktop/handoff', async (c) => {
+  app.post('/api/desktops/:id/handoff', async (c) => {
     const { owner } = z.object({ owner: z.enum(['human', 'agent']) }).parse(await c.req.json());
-    return c.json(r.desktop.handoff(owner));
+    return c.json(r.desktop.get(c.req.param('id')).handoff(owner));
   });
-  // VNC credentials only reach this authenticated user route, never model tools.
-  app.post('/api/desktop/credential', (c) => {
-    const d = r.desktop.target();
-    if (!d || r.desktop.status().owner !== 'human') throw new Error('Take desktop control first.');
-    return c.json({ password: r.desktop.credential() || '' });
+  app.post('/api/desktops/:id/credential', (c) => {
+    const desktop = r.desktop.get(c.req.param('id'));
+    if (!desktop.target() || desktop.status().owner !== 'human')
+      throw new Error('Take desktop control first.');
+    return c.json({ password: desktop.credential() || '' });
   });
-  app.post('/api/desktop/ticket', (c) => {
+  app.post('/api/desktops/:id/ticket', (c) => {
     r.store.assertEnabled();
-    if (r.desktop.status().owner !== 'human' || !r.desktop.target())
+    const desktop = r.desktop.get(c.req.param('id'));
+    if (desktop.status().owner !== 'human' || !desktop.target())
       throw new Error('Configure a desktop and take control first.');
     for (const [key, t] of tickets) if (t.expires < Date.now()) tickets.delete(key);
     const ticket = crypto.randomUUID();
-    tickets.set(ticket, { expires: Date.now() + 30000, epoch: r.desktop.status().epoch });
+    tickets.set(ticket, {
+      desktopId: c.req.param('id'),
+      expires: Date.now() + 30000,
+      epoch: desktop.status().epoch,
+    });
     return c.json({ ticket });
   });
   app.get(
-    '/api/desktop/socket',
+    '/api/desktops/:id/socket',
     async (c, next) => {
-      if (c.req.header('Origin') !== origin())
-        return c.json({ error: 'WebSocket Origin rejected.' }, 403);
-      const ticket = c.req.query('ticket') || '',
-        value = tickets.get(ticket);
-      tickets.delete(ticket);
+      const token = c.req.query('ticket') || '',
+        value = tickets.get(token);
+      tickets.delete(token);
+      const desktop = r.desktop.get(c.req.param('id'));
       if (
+        c.req.header('Origin') !== origin() ||
         r.store.stopped ||
         !value ||
+        value.desktopId !== c.req.param('id') ||
         value.expires < Date.now() ||
-        value.epoch !== r.desktop.status().epoch ||
-        r.desktop.status().owner !== 'human'
+        value.epoch !== desktop.status().epoch ||
+        desktop.status().owner !== 'human'
       )
         return c.json({ error: 'Invalid or expired desktop ticket.' }, 403);
       await next();
     },
-    upgradeWebSocket(() => {
+    upgradeWebSocket((c) => {
+      const desktop = r.desktop.get(c.req.param('id'));
       let socket: Socket | undefined, ws: WSContext | undefined;
-      const epoch = r.desktop.status().epoch;
+      const epoch = desktop.status().epoch;
+      const valid = () =>
+        !r.store.stopped &&
+        desktop.status().configured &&
+        desktop.status().epoch === epoch &&
+        desktop.status().owner === 'human';
       const cleanup = () => {
         socket?.destroy();
         r.store.changes.off('change', changed);
       };
       const changed = () => {
-        if (
-          r.desktop.status().epoch !== epoch ||
-          r.desktop.status().owner !== 'human' ||
-          r.store.stopped
-        ) {
+        if (!valid()) {
           ws?.close();
           cleanup();
         }
@@ -554,9 +596,9 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       return {
         onOpen(_event, client) {
           ws = client;
-          const d = r.desktop.target();
-          if (!d) return client.close();
-          socket = createConnection({ host: d.vncHost, port: d.vncPort });
+          const target = desktop.target();
+          if (!target || !valid()) return client.close();
+          socket = createConnection({ host: target.vncHost, port: target.vncPort });
           socket.on('data', (data) =>
             client.send(typeof data === 'string' ? data : new Uint8Array(data)),
           );
@@ -565,7 +607,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
           r.store.changes.on('change', changed);
         },
         onMessage(event, client) {
-          if (epoch !== r.desktop.status().epoch || r.store.stopped) return client.close();
+          if (!valid()) return client.close();
           if (typeof event.data === 'string') socket?.write(Buffer.from(event.data));
           else if (event.data instanceof ArrayBuffer) socket?.write(Buffer.from(event.data));
         },

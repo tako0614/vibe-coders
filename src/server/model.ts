@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from 'openai/resources/shared';
 import OpenAI from 'openai';
 import type {
   ChatCompletionMessageParam,
@@ -41,6 +42,7 @@ export class ChatModel implements ModelAdapter {
   constructor(
     readonly config: Config,
     readonly vault: Vault,
+    readonly fetcher?: typeof fetch,
   ) {}
   async call(input: ModelInput): Promise<MessageBody> {
     const p = this.config.read().provider;
@@ -52,6 +54,7 @@ export class ChatModel implements ModelAdapter {
       throw new Error('MODEL_IMAGES_UNSUPPORTED');
     const client = new OpenAI({
       apiKey: key || 'local',
+      fetch: this.fetcher,
       baseURL: p.baseUrl,
       maxRetries: 0,
       timeout: 120000,
@@ -86,7 +89,20 @@ export class ChatModel implements ModelAdapter {
       function: { name: t.name, description: t.description, parameters: t.parameters },
     }));
     const stream = await client.chat.completions
-      .create({ model: p.model, messages, tools, stream: true }, { signal: input.signal })
+      .create(
+        {
+          model: p.model,
+          messages,
+          tools,
+          stream: true,
+          ...(p.reasoningEffort
+            ? new URL(p.baseUrl).hostname === 'openrouter.ai'
+              ? { reasoning: { effort: p.reasoningEffort } }
+              : { reasoning_effort: p.reasoningEffort as ReasoningEffort }
+            : {}),
+        },
+        { signal: input.signal },
+      )
       .catch((error) => {
         if (error instanceof OpenAI.APIError && isContextLimit(error.code))
           throw new ModelContextExceeded();

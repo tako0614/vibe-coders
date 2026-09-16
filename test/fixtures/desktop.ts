@@ -59,16 +59,16 @@ export async function previewDesktop(runtime: Runtime) {
       }),
     );
     runtime.config.update(runtime.config.read().revision, (c) => {
-      c.desktop = {
+      c.desktops[0].kind = 'external';
+      c.desktops[0].connection = {
         name: 'Live test desktop',
         display,
         mode: 'vnc',
         vncHost: '127.0.0.1',
         vncPort: port,
-        revision: 1,
       };
     });
-    runtime.vault.put('desktop', 1, crypto.randomUUID(), 'test-vnc');
+    runtime.vault.put('desktop:default', 1, crypto.randomUUID(), 'test-vnc');
     return cleanup;
   } catch (error) {
     await cleanup();

@@ -30,14 +30,22 @@ test('AI settings use the same revisioned configuration as the UI and cannot wri
         },
       }),
     ).rejects.toThrow();
-    r.desktop.handoff('human');
-    const epoch = r.desktop.status().epoch;
+    r.desktop.get().handoff('human');
+    const epoch = r.desktop.get().status().epoch;
     await tool.execute({
       revision: revision + 1,
-      change: { section: 'desktop', value: { name: 'New screen', vncPort: 5901 } },
+      change: {
+        section: 'desktop',
+        value: {
+          id: 'default',
+          name: 'New screen',
+          kind: 'external',
+          connection: { name: 'New screen', vncPort: 5901 },
+        },
+      },
     });
-    expect(r.desktop.status().owner).toBe('human');
-    expect(r.desktop.status().epoch).toBeGreaterThan(epoch);
+    expect(r.desktop.get().status().owner).toBe('human');
+    expect(r.desktop.get().status().epoch).toBeGreaterThan(epoch);
     const { app } = createHttp(r);
     const response = await app.request('/api/config/retention', {
       method: 'PUT',

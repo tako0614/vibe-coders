@@ -8,7 +8,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      - run: sudo apt-get update && sudo apt-get install -y xvfb x11vnc x11-utils x11-xserver-utils xdotool imagemagick poppler-utils
+      - run: sudo apt-get update && sudo apt-get install -y xvfb xauth x11vnc openbox xterm x11-utils x11-xserver-utils xdotool imagemagick poppler-utils
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: docker build -t vibe-coders:test .

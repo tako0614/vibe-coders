@@ -40,7 +40,11 @@ const modelServer = process.env.VIBE_CODER_TEST_MODEL_PORT
           return new Response('', { status: 401 });
         return Response.json({
           data: [
-            { id: 'fixture/alpha', name: 'Alpha picker model' },
+            {
+              id: 'fixture/alpha',
+              name: 'Alpha picker model',
+              reasoning: { supported_efforts: ['high', 'low'], default_effort: 'low' },
+            },
             { id: 'fixture/beta', name: 'Beta picker model' },
           ],
         });

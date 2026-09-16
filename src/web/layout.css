@@ -900,7 +900,6 @@
   display: flex;
   flex-direction: column;
 }
-.shell-compact .shell-heading,
 .shell-compact .deck-bar,
 .shell-compact .shell-tile-heading,
 .shell-compact .shell-layout-toggle,
@@ -1057,4 +1056,77 @@
   .shell-compact .shell-grid {
     min-height: 180px;
   }
+}
+
+.desktop-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid #e5e5e5;
+  background: #fff;
+}
+.desktop-tabs [role='tablist'] {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  gap: 4px;
+}
+.desktop-tabs [role='tab'] {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  gap: 6px;
+  padding: 8px;
+  font-size: 12px;
+}
+.desktop-tabs [aria-selected='true'] {
+  background: #ededed;
+  color: #111;
+}
+.desktop-tabs [role='tab'] span {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.desktop-owner {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #b5b5b5;
+}
+.desktop-owner.human {
+  background: #337b57;
+}
+.shell-compact .shell-heading {
+  padding: 6px 0;
+}
+.shell-compact .shell-heading h1 {
+  display: none;
+}
+.shell-compact .shell-heading-actions {
+  flex-wrap: wrap;
+}
+.shell-compact .shell-heading-actions button {
+  font-size: 12px;
+  padding: 6px;
+}
+
+.effort-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #737373;
+  font-size: 11px;
+}
+.effort-picker select {
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  width: auto;
+  max-width: 145px;
+  font-size: 12px;
+  color: #555;
 }

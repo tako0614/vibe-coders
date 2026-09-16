@@ -2,12 +2,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { HostConfig } from './config';
+import type { z } from 'zod';
+import type { desktopSchema } from '../shared/contracts';
 import { atomicWrite } from './config';
 import { RfbClient } from './rfb';
 import { shellEnvironment } from './runs';
 
-type Target = NonNullable<HostConfig['desktop']>;
+type Target = z.infer<typeof desktopSchema> & { revision: number };
 type Lease = { pid: number; start: string };
 const dependencies = {
   xdpyinfo: 'x11-utils',
@@ -40,6 +41,7 @@ function killOwned(lease: Lease, signal: NodeJS.Signals) {
 
 /** Owns only the display bridge and processes launched by this Home. */
 export class DesktopHost {
+  private static setupQueue: Promise<unknown> = Promise.resolve();
   target?: Target;
   password = '';
   environment: Record<string, string | undefined> = {};
@@ -56,8 +58,10 @@ export class DesktopHost {
     readonly home: string,
     directory: string,
     readonly notify: () => void,
+    id = 'default',
   ) {
-    this.directory = join(directory, 'computer');
+    this.directory =
+      id === 'default' ? join(directory, 'computer') : join(directory, 'desktops', id);
   }
   private progress(message: string) {
     this.message = message;
@@ -201,7 +205,14 @@ export class DesktopHost {
     const generation = this.generation;
     this.state = 'preparing';
     this.progress('インストール先の画面を確認しています…');
-    this.pending = this.setup(virtual, allowInstall, generation)
+    const prepare = DesktopHost.setupQueue
+      .catch(() => {})
+      .then(() => {
+        this.assert(generation);
+        return this.setup(virtual, allowInstall, generation);
+      });
+    DesktopHost.setupQueue = prepare;
+    this.pending = prepare
       .catch(async (error) => {
         await this.stopChildren();
         this.target = undefined;
@@ -259,7 +270,15 @@ export class DesktopHost {
         `add ${display} . ${randomBytes(16).toString('hex')}\n`,
       );
       this.assert(generation);
-      env = { ...env, DISPLAY: display, XAUTHORITY: authority };
+      env = {
+        ...env,
+        DISPLAY: display,
+        XAUTHORITY: authority,
+        XDG_SESSION_TYPE: 'x11',
+        GDK_BACKEND: 'x11',
+        QT_QPA_PLATFORM: 'xcb',
+      };
+      delete env.WAYLAND_DISPLAY;
       const x = this.start(
         [
           'Xvfb',

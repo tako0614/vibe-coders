@@ -66,6 +66,7 @@ export const runs = sqliteTable('runs', {
     .notNull()
     .references(() => conversations.id),
   kind: text({ enum: ['shell', 'terminal', 'mcp', 'native'] }).notNull(),
+  desktopId: text(),
   title: text().notNull(),
   cwd: text().notNull(),
   host: text().notNull(),

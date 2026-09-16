@@ -1,3 +1,4 @@
+import { DesktopSettings } from './DesktopSettings';
 import { McpSettings } from './McpSettings';
 import { ChangesPanel, FileEditor } from './ChangesPanel';
 import { useEffect, useRef, useState } from 'react';
@@ -284,7 +285,6 @@ export function SettingsPanel({
   action: Action;
   onView: (v: View, section?: string) => void;
 }) {
-  const [desktopForm, setDesktopForm] = useState(false);
   const [section, setSection] = useState(initialSection);
   const key = (targetId: string) =>
     action(async () => {
@@ -316,94 +316,9 @@ export function SettingsPanel({
       {section === 'mcp' && (
         <McpSettings status={status} snapshot={snapshot} action={action} onView={onView} />
       )}
-      <section className="form-card" hidden={section !== 'desktop'}>
-        <div className="section-heading">
-          <div>
-            <h2>共有デスクトップ</h2>
-            <p>インストール先の画面を自動で共有</p>
-          </div>
-          <button onClick={() => setDesktopForm(!desktopForm)}>手動接続の設定</button>
-        </div>
-        <p>
-          {status.desktop.configured
-            ? `${status.desktop.name} / DISPLAY ${status.desktop.display}`
-            : status.desktop.message}
-        </p>
-        <small className="muted">
-          Linuxでは利用可能な画面を自動接続し、画面のない環境では専用デスクトップを起動します。
-          別のVNCを使う場合は手動接続を設定してください。
-        </small>
-        {desktopForm && (
-          <form
-            className="nested-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const f = new FormData(e.currentTarget);
-              void action(async () => {
-                await api('/config/desktop', 'PUT', {
-                  revision: status.config.revision,
-                  desktop: {
-                    name: String(f.get('name')),
-                    mode: String(f.get('mode')),
-                    display: String(f.get('display')),
-                    vncHost: '127.0.0.1',
-                    vncPort: Number(f.get('port')),
-                  },
-                });
-                setDesktopForm(false);
-              });
-            }}
-          >
-            <label>
-              画面の名前
-              <input
-                name="name"
-                required
-                defaultValue={status.config.desktop?.name || 'この端末のデスクトップ'}
-              />
-            </label>
-            <div className="form-grid">
-              <label>
-                DISPLAY
-                <input
-                  name="display"
-                  required
-                  defaultValue={status.config.desktop?.display || ':0'}
-                />
-              </label>
-              <label>
-                VNCポート
-                <input
-                  name="port"
-                  type="number"
-                  required
-                  min="1"
-                  max="65535"
-                  defaultValue={status.config.desktop?.vncPort || 5900}
-                />
-              </label>
-            </div>
-            <label>
-              画面の操作方式
-              <select name="mode" defaultValue={status.config.desktop?.mode || 'x11'}>
-                <option value="x11">このホストのLinux X11</option>
-                <option value="vnc">VNC経由（Wayland / macOS / Windows / 別ホスト）</option>
-              </select>
-            </label>
-            <small className="muted">
-              別ホストはSSH等でVNCポートをlocalhostへ転送します。対象画面のVNCサーバーはOS側で有効にしてください。
-            </small>
-            <div className="form-actions">
-              <button className="primary">保存</button>
-              {status.desktop.configured && (
-                <button type="button" onClick={() => void key('desktop')}>
-                  VNCパスワードを入力
-                </button>
-              )}
-            </div>
-          </form>
-        )}
-      </section>
+      {section === 'desktop' && (
+        <DesktopSettings status={status} action={action} onCredential={(id) => void key(id)} />
+      )}
       <section className="form-card control-card" hidden={section !== 'system'}>
         <h2>実行の制御</h2>
         <p>全停止は、親・管理下プロセス・予定からの新規実行を止めます。</p>
@@ -827,17 +742,22 @@ export function DesktopPanel({
   action,
   onView,
   compact = false,
+  desktopId,
 }: {
   status: Status;
   action: Action;
   onView: (v: View, section?: string) => void;
   compact?: boolean;
+  desktopId?: string;
 }) {
   const container = useRef<HTMLDivElement>(null),
     [connection, setConnection] = useState('未接続'),
     [preview, setPreview] = useState(''),
-    [attempt, setAttempt] = useState(0);
-  const desktop = status.desktop;
+    [attempt, setAttempt] = useState(0),
+    [selectedDesktop, setSelectedDesktop] = useState('');
+  const desktop =
+    status.desktops.find((d) => d.id === (desktopId || selectedDesktop)) || status.desktops[0];
+  const path = `/desktops/${desktop.id}`;
   useEffect(() => {
     if (!desktop.configured || desktop.owner !== 'human' || status.stopped) return;
     let disposed = false,
@@ -846,13 +766,13 @@ export function DesktopPanel({
       setConnection('接続中');
       const [{ default: RFB }, { ticket }, credentials] = await Promise.all([
         import('@novnc/novnc'),
-        api<{ ticket: string }>('/desktop/ticket', 'POST', {}),
-        api<{ password: string }>('/desktop/credential', 'POST', {}),
+        api<{ ticket: string }>(`${path}/ticket`, 'POST', {}),
+        api<{ password: string }>(`${path}/credential`, 'POST', {}),
       ]);
       if (disposed || !container.current) return;
       const client = new RFB(
         container.current,
-        `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/desktop/socket?ticket=${encodeURIComponent(ticket)}`,
+        `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/desktops/${desktop.id}/socket?ticket=${encodeURIComponent(ticket)}`,
         { credentials },
       );
       rfb = client;
@@ -872,7 +792,15 @@ export function DesktopPanel({
       disposed = true;
       rfb?.disconnect();
     };
-  }, [desktop.configured, desktop.owner, desktop.epoch, status.stopped, attempt, action]);
+  }, [
+    desktop.id,
+    desktop.configured,
+    desktop.owner,
+    desktop.epoch,
+    status.stopped,
+    attempt,
+    action,
+  ]);
   useEffect(() => {
     setPreview('');
     if (!desktop.configured || desktop.owner !== 'agent' || status.stopped) return;
@@ -881,7 +809,7 @@ export function DesktopPanel({
     const refresh = async () => {
       try {
         if (document.visibilityState === 'visible') {
-          const result = await api<{ image: string }>('/desktop/preview');
+          const result = await api<{ image: string }>(`${path}/preview`);
           if (!disposed) {
             setPreview(`data:image/png;base64,${result.image}`);
             setConnection('表示中');
@@ -897,11 +825,27 @@ export function DesktopPanel({
       disposed = true;
       clearTimeout(timer);
     };
-  }, [desktop.configured, desktop.owner, desktop.epoch, status.stopped, attempt]);
+  }, [desktop.id, desktop.configured, desktop.owner, desktop.epoch, status.stopped, attempt]);
   return (
     <section className={`page desktop-page ${compact ? 'desktop-compact' : ''}`}>
+      {!compact && (
+        <label className="desktop-selector">
+          デスクトップ
+          <select
+            aria-label="表示するデスクトップ"
+            value={desktop.id}
+            onChange={(e) => setSelectedDesktop(e.target.value)}
+          >
+            {status.desktops.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <Heading
-        title="デスクトップ"
+        title={desktop.name}
         description="インストール先の画面を共有します。手動操作中は、この画面へのAIの観測と入力が止まります。"
       >
         {desktop.configured && (
@@ -910,7 +854,7 @@ export function DesktopPanel({
             disabled={status.stopped}
             onClick={() =>
               void action(() =>
-                api('/desktop/handoff', 'POST', {
+                api(`${path}/handoff`, 'POST', {
                   owner: desktop.owner === 'human' ? 'agent' : 'human',
                 }),
               )
@@ -933,7 +877,7 @@ export function DesktopPanel({
           <button
             className="primary"
             disabled={status.stopped || desktop.setup === 'preparing'}
-            onClick={() => void action(() => api('/desktop/prepare', 'POST', {}))}
+            onClick={() => void action(() => api(`${path}/prepare`, 'POST', {}))}
           >
             {desktop.setup === 'error' ? 'もう一度接続する' : '自動で接続する'}
           </button>
@@ -962,7 +906,7 @@ export function DesktopPanel({
                 <button
                   disabled={status.stopped}
                   onClick={() =>
-                    void action(() => api('/desktop/launch', 'POST', { app: 'browser' }))
+                    void action(() => api(`${path}/launch`, 'POST', { app: 'browser' }))
                   }
                 >
                   Chromeを開く
@@ -970,7 +914,7 @@ export function DesktopPanel({
                 <button
                   disabled={status.stopped}
                   onClick={() =>
-                    void action(() => api('/desktop/launch', 'POST', { app: 'terminal' }))
+                    void action(() => api(`${path}/launch`, 'POST', { app: 'terminal' }))
                   }
                 >
                   端末を開く

@@ -121,7 +121,12 @@ export function McpSettings({ status, snapshot, action, onView }: Props) {
               接続はまだありません。「接続を追加」からサーバーを登録できます。
             </p>
           )}
-      <McpInstall snapshot={snapshot} action={action} onRun={() => onView('terminal')} />
+      <McpInstall
+        status={status}
+        snapshot={snapshot}
+        action={action}
+        onRun={() => onView('terminal')}
+      />
     </section>
   );
 }
@@ -186,11 +191,7 @@ function ConnectionForm({
                       ? { oauthScope: String(f.get('oauthScope')) }
                       : {}),
                   }),
-              ...(f.get('desktop') === 'on'
-                ? { targetId: 'desktop' }
-                : connection?.targetId && connection.targetId !== 'desktop'
-                  ? { targetId: connection.targetId }
-                  : {}),
+              ...(f.get('desktopId') ? { targetId: `desktop:${f.get('desktopId')}` } : {}),
             },
           });
           onClose();
@@ -311,9 +312,21 @@ function ConnectionForm({
           )}
         </>
       )}
-      <label className="checkbox">
-        <input name="desktop" type="checkbox" defaultChecked={connection?.targetId === 'desktop'} />
-        共有デスクトップと同じ画面を操作する
+      <label>
+        操作するデスクトップ
+        <select
+          name="desktopId"
+          defaultValue={
+            connection?.targetId?.startsWith('desktop:') ? connection.targetId.slice(8) : ''
+          }
+        >
+          <option value="">画面に紐づけない</option>
+          {status.desktops.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
       </label>
       <small className="muted">
         選択すると、画面の手動操作中はこの接続へのAIアクセスも止まります。

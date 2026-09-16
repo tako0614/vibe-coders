@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { shellEnvironment } from './runs';
-import type { ModelChoice } from '../shared/models';
+import { reasoningChoices, type ModelChoice } from '../shared/models';
 
 type AuthState =
   'unchecked' | 'missing' | 'signed_out' | 'starting' | 'waiting' | 'signed_in' | 'ready' | 'error';
@@ -70,7 +70,8 @@ export class CodexAuth {
   userStatus() {
     return {
       ...this.status(),
-      desktopOwner: this.desktop.status().owner,
+      desktopOwner: this.desktop.list()[0]?.owner,
+      desktopId: this.desktop.list()[0]?.id,
       login: this.active?.details || null,
     };
   }
@@ -95,7 +96,7 @@ export class CodexAuth {
     try {
       await client.request(
         'initialize',
-        { clientInfo: { name: 'vibe_coders', version: '0.2.2' } },
+        { clientInfo: { name: 'vibe_coders', version: '0.3.0' } },
         10000,
       );
       client.send({ method: 'initialized', params: {} });
@@ -260,13 +261,17 @@ export class CodexAuth {
       id: m.slug,
       name: typeof m.display_name === 'string' ? m.display_name.slice(0, 200) : m.slug,
       isDefault: index === 0,
+      ...reasoningChoices(
+        m.supported_reasoning_levels?.map((v: any) => v.effort),
+        m.default_reasoning_level,
+      ),
     }));
   }
   // Older CLI versions may only expose the App Server catalog.
   private async rpcModels() {
     const client = await this.open();
     try {
-      const result: { id: string; name: string; isDefault: boolean }[] = [];
+      const result: ModelChoice[] = [];
       let cursor: string | undefined;
       for (let page = 0; page < 20; page++) {
         const response = await client.request(
@@ -280,6 +285,10 @@ export class CodexAuth {
               id: model.model,
               name: model.displayName || model.model,
               isDefault: !!model.isDefault,
+              ...reasoningChoices(
+                model.supportedReasoningEfforts?.map((v: any) => v.reasoningEffort),
+                model.defaultReasoningEffort,
+              ),
             });
         cursor = response.nextCursor;
         if (!cursor) return result;
@@ -345,7 +354,7 @@ export class CodexAuth {
       await this.end(attempt, true, this.credentialSource ? '' : credentialUnavailable);
       return;
     }
-    this.desktop.handoff('human');
+    this.desktop.get().handoff('human');
     client.events.on('message', (message) => {
       if (message.method !== 'account/login/completed') return;
       const event = message.params;

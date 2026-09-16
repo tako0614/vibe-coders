@@ -165,7 +165,7 @@ test('Working surfaces follow actual shell/desktop use in this turn, not install
         args: [],
         enabled: true,
         revision: 1,
-        targetId: 'desktop',
+        targetId: 'desktop:default',
       },
     ]),
   ).toBe('desktop');

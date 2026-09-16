@@ -20,8 +20,8 @@ test('desktop WebSocket exchanges binary bytes using one-use tickets and closes 
     },
   });
   r.config.update(r.config.read().revision, (c) => {
-    c.desktop = {
-      revision: 1,
+    c.desktops[0].kind = 'external';
+    c.desktops[0].connection = {
       name: 'wire-test',
       display: ':77',
       vncHost: '127.0.0.1',
@@ -36,8 +36,8 @@ test('desktop WebSocket exchanges binary bytes using one-use tickets and closes 
   const origin = `http://127.0.0.1:${server.port}`;
   let socket: WebSocket | undefined;
   try {
-    r.desktop.handoff('human');
-    const response = await fetch(`${origin}/api/desktop/ticket`, {
+    r.desktop.get().handoff('human');
+    const response = await fetch(`${origin}/api/desktops/default/ticket`, {
       method: 'POST',
       headers: {
         Authorization: `Basic ${Buffer.from('owner:test-only-password-123').toString('base64')}`,
@@ -46,7 +46,7 @@ test('desktop WebSocket exchanges binary bytes using one-use tickets and closes 
       },
     });
     const { ticket } = (await response.json()) as { ticket: string };
-    const url = `ws://127.0.0.1:${server.port}/api/desktop/socket?ticket=${ticket}`;
+    const url = `ws://127.0.0.1:${server.port}/api/desktops/default/socket?ticket=${ticket}`;
     socket = new BunWebSocket(url, { headers: { Origin: origin } });
     socket.binaryType = 'arraybuffer';
     await new Promise<void>((resolve, reject) => {
@@ -71,7 +71,7 @@ test('desktop WebSocket exchanges binary bytes using one-use tickets and closes 
     const closed = new Promise<void>((resolve) => {
       socket!.onclose = () => resolve();
     });
-    r.desktop.handoff('agent');
+    r.desktop.get().handoff('agent');
     await closed;
     expect(socket.readyState).toBe(WebSocket.CLOSED);
   } finally {

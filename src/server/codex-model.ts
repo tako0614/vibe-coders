@@ -1,3 +1,4 @@
+import type { ReasoningEffort } from 'openai/resources/shared';
 import { ModelContextExceeded, isContextLimit } from './model';
 import OpenAI from 'openai';
 import type { ResponseInputItem, ResponseOutputItem } from 'openai/resources/responses/responses';
@@ -93,6 +94,10 @@ export class CodexModel implements ModelAdapter {
         const stream = await client.responses.create(
           {
             model: provider.model,
+            // Native Codex catalogs can advertise efforts ahead of the SDK's API union.
+            ...(provider.reasoningEffort
+              ? { reasoning: { effort: provider.reasoningEffort as ReasoningEffort } }
+              : {}),
             instructions: input.system,
             input: codexInput(input.messages, provider.model),
             tools: input.tools.map((tool) => ({
