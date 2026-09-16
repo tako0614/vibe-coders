@@ -22,6 +22,29 @@ export class Store {
     this.notify();
     return row;
   }
+  workspaceConversation() {
+    // Standalone shells and connection setup need an owner before a chat exists.
+    // Keep one workspace context, separate from both chat history and user chats.
+    const id = this.get<string | null>('workspace-conversation', null);
+    if (id) return this.conversation(id);
+    return this.db.transaction(() => {
+      const conversation = this.createConversation('ワークスペース');
+      this.set('workspace-conversation', conversation.id);
+      return conversation;
+    });
+  }
+  claimWorkspace(id?: string) {
+    if (!id || this.get('workspace-conversation', null) !== id) return;
+    // The first chat inherits the shells and setup opened while composing it.
+    const conversation = this.db
+      .update(s.conversations)
+      .set({ title: '新しい会話' })
+      .where(eq(s.conversations.id, id))
+      .returning()
+      .get();
+    this.db.delete(s.state).where(eq(s.state.key, 'workspace-conversation')).run();
+    return conversation;
+  }
   conversation(id: string) {
     const row = this.db.select().from(s.conversations).where(eq(s.conversations.id, id)).get();
     if (!row) throw new Error('Conversation not found.');

@@ -27,6 +27,28 @@ import { providerCredentialSchema } from '../shared/models';
 import { providerModels } from './provider-models';
 import { updateProvider, updateSettings } from './settings';
 
+const messageSchema = z
+  .object({
+    text: z.string().max(64000),
+    operationId: z.string().uuid(),
+    workspaceId: z.string().uuid().optional(),
+    images: z
+      .array(
+        z.object({
+          type: z.literal('image_url'),
+          image_url: z.object({
+            url: z
+              .string()
+              .max(5 * 1024 * 1024)
+              .regex(/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/),
+          }),
+        }),
+      )
+      .max(4)
+      .optional(),
+  })
+  .refine((v) => v.text.trim().length || v.images?.length, 'Enter a message or attach an image.');
+
 export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {}) {
   const r = runtime,
     app = new Hono(),
@@ -143,10 +165,14 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     ),
   );
   terminals.install(app, upgradeWebSocket);
-  app.get('/api/status', (c) =>
-    c.json({
+  app.get('/api/status', (c) => {
+    const workspace = r.store.workspaceConversation();
+    const conversations = r.store.listConversations();
+    return c.json({
       home: r.home,
-      conversations: r.store.listConversations(),
+      conversations: conversations.filter((conversation) => conversation.id !== workspace.id),
+      working: conversations.some((conversation) => conversation.state === 'running'),
+      workspaceId: workspace.id,
       config: r.config.public(),
       mcp: r.mcp.status(),
       desktops: r.desktop.list(),
@@ -162,9 +188,15 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
           ? r.codex.status().subscriptionReady
           : !r.config.read().provider!.keyRequired ||
             !!r.vault.get('provider:main', r.config.read().provider!.revision)),
-    }),
-  );
-  app.post('/api/conversations', (c) => c.json(r.store.createConversation(), 201));
+    });
+  });
+  app.post('/api/conversations', async (c) => {
+    const body = messageSchema.parse(await c.req.json());
+    return c.json(
+      r.agent.startConversation(body.text, body.operationId, body.images, body.workspaceId),
+      201,
+    );
+  });
   app.get('/api/conversations/:id', (c) =>
     c.json({
       ...r.store.snapshot(c.req.param('id')),
@@ -172,30 +204,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     }),
   );
   app.post('/api/conversations/:id/messages', async (c) => {
-    const body = z
-      .object({
-        text: z.string().max(64000),
-        operationId: z.string().uuid(),
-        images: z
-          .array(
-            z.object({
-              type: z.literal('image_url'),
-              image_url: z.object({
-                url: z
-                  .string()
-                  .max(5 * 1024 * 1024)
-                  .regex(/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/),
-              }),
-            }),
-          )
-          .max(4)
-          .optional(),
-      })
-      .refine(
-        (v) => v.text.trim().length || v.images?.length,
-        'Enter a message or attach an image.',
-      )
-      .parse(await c.req.json());
+    const body = messageSchema.parse(await c.req.json());
     r.agent.submit(c.req.param('id'), body.text, body.operationId, body.images);
     return c.json({ accepted: true }, 202);
   });

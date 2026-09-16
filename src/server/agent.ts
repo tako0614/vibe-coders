@@ -122,6 +122,16 @@ export class Agent {
         ),
       );
   }
+  startConversation(text: string, operationId: string, images?: ImagePart[], workspaceId?: string) {
+    return this.store.db.transaction(() => {
+      const prior = this.store.db.select().from(messages).where(eq(messages.id, operationId)).get();
+      const conversation = prior
+        ? this.store.conversation(prior.conversationId)
+        : this.store.claimWorkspace(workspaceId) || this.store.createConversation();
+      this.submit(conversation.id, text, operationId, images);
+      return this.store.conversation(conversation.id);
+    });
+  }
   submit(id: string, text: string, operationId: string, images?: ImagePart[]) {
     const c = this.store.conversation(id);
     const body: MessageBody = {

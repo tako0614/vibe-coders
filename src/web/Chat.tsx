@@ -26,7 +26,7 @@ import { ActivityHistory, ToolActivityGroup, ExecutionStatus } from './Activity'
 import { collectActivities, type WorkSurface } from './activity-state';
 import { ChatModelPicker } from './ChatModelPicker';
 
-export type ComposerDraft = { text: string; images: ImagePart[] };
+export type ComposerDraft = { text: string; images: ImagePart[]; operationId?: string };
 
 export function RequestCard({ request: r, action }: { request: HumanRequest; action: Action }) {
   const [busy, setBusy] = useState(false),
@@ -228,6 +228,7 @@ export function Chat({
   drafts,
   onWorkspace,
   surface,
+  onStarted,
 }: {
   snapshot: Snapshot;
   status: Status;
@@ -236,24 +237,29 @@ export function Chat({
   drafts: Map<string, ComposerDraft>;
   onWorkspace: (surface: WorkSurface) => void;
   surface: WorkSurface | null;
+  onStarted?: (id: string) => void;
 }) {
+  const draftId = onStarted ? 'new' : s.conversation.id;
   const persisted = useComposerDraft(
-    `${status.config.username}:${status.home}:${s.conversation.id}`,
-    s.conversation.id,
+    `${status.config.username}:${status.home}:${draftId}`,
+    draftId,
     drafts,
   );
   const { text, images } = persisted.draft;
   const setText = (value: string | ((text: string) => string)) =>
     persisted.update((current) => ({
       ...current,
+      operationId: undefined,
       text: typeof value === 'function' ? value(current.text) : value,
     }));
   const setImages = (value: ImagePart[] | ((images: ImagePart[]) => ImagePart[])) =>
     persisted.update((current) => ({
       ...current,
+      operationId: undefined,
       images: typeof value === 'function' ? value(current.images) : value,
     }));
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false);
   const [copied, setCopied] = useState('');
   const copyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(copyTimer.current), []);
@@ -295,17 +301,30 @@ export function Chat({
     else setShowLatest(true);
   }, [s.messages.length, s.draft, pending.length]);
   const send = async () => {
-    if (busy || status.stopped || (!text.trim() && !images.length)) return;
+    if (sending.current || status.stopped || (!text.trim() && !images.length)) return;
+    sending.current = true;
     setBusy(true);
     await action(async () => {
-      await api(`/conversations/${s.conversation.id}/messages`, 'POST', {
-        text,
-        images,
-        operationId: operationId(),
-      });
-      await persisted.clear();
-      follow.current = true;
+      const id = persisted.draft.operationId || operationId();
+      await persisted.update({ operationId: id });
+      const result = await api<{ id: string }>(
+        onStarted ? '/conversations' : `/conversations/${s.conversation.id}/messages`,
+        'POST',
+        {
+          text,
+          images,
+          operationId: id,
+          ...(onStarted ? { workspaceId: s.conversation.id } : {}),
+        },
+      );
+      // Do not erase newer input if the user edited or changed views during the send.
+      if (drafts.get(draftId)?.operationId === id) {
+        await persisted.clear();
+        follow.current = true;
+        onStarted?.(result.id);
+      }
     });
+    sending.current = false;
     setBusy(false);
     area.current?.focus();
   };
@@ -454,23 +473,21 @@ export function Chat({
             最新へ
           </button>
         )}
-        {messages.length > 0 && (
-          <div className="work-surfaces" aria-label="作業環境">
-            <button aria-expanded={surface === 'terminal'} onClick={() => onWorkspace('terminal')}>
-              <SquareTerminal size={15} />
-              シェル
-              <span>
-                {s.runs.filter(
-                  (r) => ['terminal', 'shell'].includes(r.kind) && r.state === 'running',
-                ).length || ''}
-              </span>
-            </button>
-            <button aria-expanded={surface === 'desktop'} onClick={() => onWorkspace('desktop')}>
-              <Monitor size={15} />
-              画面
-            </button>
-          </div>
-        )}
+        <div className="work-surfaces" aria-label="作業環境">
+          <button aria-expanded={surface === 'terminal'} onClick={() => onWorkspace('terminal')}>
+            <SquareTerminal size={15} />
+            シェル
+            <span>
+              {s.runs.filter((r) => ['terminal', 'shell'].includes(r.kind) && r.state === 'running')
+                .length || ''}
+            </span>
+          </button>
+          <button aria-expanded={surface === 'desktop'} onClick={() => onWorkspace('desktop')}>
+            <Monitor size={15} />
+            画面
+          </button>
+        </div>
+
         <ExecutionStatus
           snapshot={s}
           providerReady={status.providerReady}

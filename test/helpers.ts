@@ -46,7 +46,7 @@ export async function fixture(
   });
   // Tests explicitly opt into network verification with a local provider fixture.
   runtime.human.verifyCredential = undefined;
-  const id = runtime.store.listConversations()[0].id;
+  const id = runtime.store.createConversation().id;
   return {
     ...runtime,
     id,

@@ -82,5 +82,10 @@ export function useComposerDraft(key: string, id: string, cache: Map<string, Com
         setError('下書きを保存できません。保存容量・ブラウザ設定を確認してください。');
       });
   };
-  return { draft, update, clear: () => update({ text: '', images: [] }), error };
+  return {
+    draft,
+    update,
+    clear: () => update({ text: '', images: [], operationId: undefined }),
+    error,
+  };
 }

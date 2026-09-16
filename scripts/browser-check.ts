@@ -167,13 +167,57 @@ try {
     `document.querySelectorAll('.conversation-list button').length`,
   );
   await clickText('新しい会話');
-  await until(`document.querySelectorAll('.conversation-list button').length > ${previousChats}`);
+  await until(
+    `!!document.querySelector('.welcome') && !document.querySelector('.conversation-list .current')`,
+  );
+  await clickText('新しい会話');
+  if (
+    await evaluate(
+      `document.querySelectorAll('.conversation-list button').length !== ${previousChats}`,
+    )
+  )
+    throw Error('Opening new chat added an empty conversation');
+  await setValue('.composer textarea', '最初の送信の応答が失われても重複しない');
+  await evaluate(
+    `(()=>{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(args[0]==='/api/conversations'&&args[1]?.method==='POST'){window.fetch=original;throw Error('test acknowledgement lost');}return response;};})()`,
+  );
+  await evaluate(`document.querySelector('[aria-label="メッセージを送信"]').click()`);
+  await until(
+    `document.querySelector('.error-banner')?.textContent.includes('test acknowledgement lost') && !document.querySelector('[aria-label="メッセージを送信"]').disabled`,
+  );
+  await until(
+    `document.querySelectorAll('.conversation-list button').length === ${previousChats + 1}`,
+  );
+  if (
+    await evaluate(
+      `document.querySelector('.composer textarea').value !== '最初の送信の応答が失われても重複しない'`,
+    )
+  )
+    throw Error('Failed first send discarded draft');
+  await command('Page.reload', {}, sessionId);
+  await until(
+    `document.querySelector('.composer textarea')?.value === '最初の送信の応答が失われても重複しない'`,
+  );
+  await evaluate(`document.querySelector('[aria-label="メッセージを送信"]').click()`);
+  await until(
+    `document.querySelector('.conversation-list .current')?.title === '最初の送信の応答が失われても重複しない' && document.querySelector('.composer textarea')?.value === ''`,
+  );
+  if (
+    await evaluate(
+      `document.querySelectorAll('.conversation-list button').length !== ${previousChats + 1}`,
+    )
+  )
+    throw Error('First-send retry duplicated chat');
+  await clickText('新しい会話');
+  await until(
+    `!!document.querySelector('.welcome') && document.querySelector('.composer textarea')?.value === ''`,
+  );
   await clickText('ターミナル');
   if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     const authState = process.env.VIBE_CODER_TEST_AUTH_STATE;
     if (!authState) throw new Error('Use the fixture auth-state path.');
     await evaluate(
-      `(async()=>{const headers={'Authorization':'Basic '+btoa('owner:test-only-password-123'),'X-Vibe-Coder':'1','Content-Type':'application/json'};const status=await(await fetch('/api/status',{headers})).json(); const response=await fetch('/api/codex/auth/login',{method:'POST',headers,body:JSON.stringify({conversationId:status.conversations[0].id,method:'device'})}); if(!response.ok)throw Error(await response.text());})()`,
+      `(async()=>{const headers={'Authorization':'Basic '+btoa('owner:test-only-password-123'),'X-Vibe-Coder':'1','Content-Type':'application/json'};const status=await(await fetch('/api/status',{headers})).json(); const response=await fetch('/api/codex/auth/login',{method:'POST',headers,body:JSON.stringify({conversationId:status.workspaceId,method:'device'})}); if(!response.ok)throw Error(await response.text());})()`,
     );
     await clickText('入力依頼');
     await until(
@@ -591,15 +635,54 @@ try {
     await openModels();
     await setValue('input[name="model"]', 'fixture/alpha');
     await clickText('Alpha picker model');
-    await until(`!!document.querySelector('select[aria-label="推論の深さ"]')`);
-    await evaluate(
-      `(()=>{const e=document.querySelector('select[aria-label="推論の深さ"]');e.value='high';e.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+    await until(`!!document.querySelector('.effort-trigger:not(:disabled)')`);
+    await evaluate(`document.querySelector('.effort-trigger').click()`);
+    await until(`!!document.querySelector('.effort-dialog[open]')`);
+    await screenshot('effort-picker');
+    await command(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+      sessionId,
+    );
+    await until(`document.activeElement?.dataset.effort === 'high'`);
+    await command(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
+      sessionId,
     );
     await until(
       `fetch('/api/status').then(r=>r.json()).then(s=>s.config.provider.reasoningEffort==='high')`,
     );
     await command('Page.reload', {}, sessionId);
-    await until(`document.querySelector('select[aria-label="推論の深さ"]')?.value==='high'`);
+    await until(`document.querySelector('.effort-trigger')?.textContent.includes('High')`);
+    await until(`!!document.querySelector('.effort-trigger:not(:disabled)')`);
+    await evaluate(`document.querySelector('.effort-trigger').click()`);
+    await command(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+      sessionId,
+    );
+    await until(`!!document.querySelector('.effort-dialog[open]')`);
+    await screenshot('mobile-effort-picker');
+    if (
+      await evaluate(
+        `(()=>{const r=document.querySelector('.effort-dialog').getBoundingClientRect();return r.left<0||r.right>innerWidth||r.top<0||r.bottom>innerHeight;})()`,
+      )
+    )
+      throw Error('Effort picker outside mobile viewport');
+    await command(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+      sessionId,
+    );
+    await until(
+      `!document.querySelector('.effort-dialog') && document.activeElement?.classList.contains('effort-trigger')`,
+    );
+    await command(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
+      sessionId,
+    );
     await openModels();
     await setValue('input[name="model"]', 'fixture/manual-model');
     await clickText('を使用');
@@ -806,6 +889,24 @@ try {
     await until(`document.querySelector('.agent-workbench').textContent.includes('AIが操作中')`);
     await setValue('.composer textarea', 'このまま作業を続けて');
     await screenshot('workspace-shell');
+    await evaluate(`document.querySelector('[aria-label="作業パネルを閉じる"]').click()`);
+    await until(`!document.querySelector('.agent-workbench')`);
+    await command('Page.reload', {}, sessionId);
+    await until(
+      `!!document.querySelector('.composer') && !document.querySelector('.agent-workbench')`,
+    );
+    await until(
+      `fetch('/api/status').then(r=>r.json()).then(async s=>{const id=localStorage.getItem('vibe-conversation:'+s.home);const c=await(await fetch('/api/conversations/'+id)).json();return c.runs.some(r=>r.id===${JSON.stringify(workingRun)}&&r.state==='running');})`,
+    );
+    await Bun.sleep(300);
+    if (await evaluate(`!!document.querySelector('.agent-workbench')`))
+      throw Error('Workbench reopened against user preference');
+    await screenshot('workspace-closed');
+    await evaluate(`document.querySelector('.work-surfaces button').click()`);
+    await until(
+      `document.querySelector('.agent-workbench [data-run-id]')?.dataset.runId === ${JSON.stringify(workingRun)}`,
+    );
+
     if (process.env.VIBE_CODER_TEST_DESKTOP === '1') {
       await evaluate(`document.querySelector('.desktop-tabs [role="tab"]').click()`);
       await until(`document.querySelectorAll('.workbench-heading [role="tab"]').length===2`);
@@ -968,7 +1069,8 @@ try {
       passed: true,
       checks: [
         'login',
-        'chat creation',
+        'new chat stays a draft; first send and lost-acknowledgement retry create exactly one chat',
+        'workbench close, reopen, reload preference and ongoing shell preservation',
         'terminal creation with immediate human input',
         'terminal paste, font sizing, reconnect and mobile controls',
         'deck grid, maximization, move without remount, hidden PTY, writable JSON pipe and EOF, reload persistence and mobile switching',

@@ -184,3 +184,95 @@ test('queued API-provider work waits for its key, then resumes after secret inpu
     await r.dispose();
   }
 });
+
+test('first send creates one chat atomically; empty input and retries do not add empty chats', async () => {
+  const r = await fixture({
+    isConfigured: () => false,
+    async call() {
+      throw Error('Not configured');
+    },
+  });
+  try {
+    const { app } = createHttp(r);
+    const status = async () =>
+      (await (await app.request('/api/status', { headers })).json()) as any;
+    const before = r.store.listConversations().length;
+    const initial = await status();
+    expect(initial.conversations.some((c: any) => c.id === initial.workspaceId)).toBe(false);
+    expect(r.store.history(initial.workspaceId)).toHaveLength(0);
+    createHttp(r);
+    expect(r.store.listConversations()).toHaveLength(before);
+    const post = (body: unknown) =>
+      app.request('/api/conversations', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+    expect((await post({})).status).toBe(400);
+    expect((await post({ text: '  ', operationId: crypto.randomUUID() })).status).toBe(400);
+    expect(r.store.listConversations()).toHaveLength(before);
+    const body = { text: 'Start at the first message.', operationId: crypto.randomUUID() };
+    const response = await post(body);
+    expect(response.status).toBe(201);
+    const conversation = (await response.json()) as { id: string; title: string };
+    expect(conversation.title).toBe(body.text);
+    expect(r.store.history(conversation.id)).toHaveLength(1);
+    expect(r.store.listConversations()).toHaveLength(before + 1);
+    // Simulate the client retrying after the acknowledgement was lost.
+    expect(((await (await post(body)).json()) as { id: string }).id).toBe(conversation.id);
+    expect(r.store.history(conversation.id)).toHaveLength(1);
+    expect((await post({ ...body, text: 'Different content' })).status).toBe(400);
+    expect(r.store.listConversations()).toHaveLength(before + 1);
+    expect((await status()).conversations).toHaveLength(initial.conversations.length + 1);
+    const image = await post({
+      text: '',
+      operationId: crypto.randomUUID(),
+      images: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } }],
+    });
+    expect(image.status).toBe(201);
+    expect(((await image.json()) as { title: string }).title).toBe('画像について');
+  } finally {
+    await r.dispose();
+  }
+});
+
+test('first send inherits standalone workspace state without attaching to an older chat', async () => {
+  const r = await fixture({
+    isConfigured: () => false,
+    async call() {
+      throw Error('Not configured');
+    },
+  });
+  try {
+    const { app } = createHttp(r);
+    const status = async () =>
+      (await (await app.request('/api/status', { headers })).json()) as any;
+    const before = await status();
+    const workspace = r.store.workspace(before.workspaceId);
+    r.store.updateWorkspace(before.workspaceId, {
+      ...workspace,
+      decks: [{ id: 'main', name: 'My draft shell deck' }],
+    });
+    const body = {
+      text: 'Continue my workspace.',
+      operationId: crypto.randomUUID(),
+      workspaceId: before.workspaceId,
+    };
+    const send = () =>
+      app.request('/api/conversations', { method: 'POST', headers, body: JSON.stringify(body) });
+    const first = (await (await send()).json()) as { id: string; title: string };
+    expect(first.id).toBe(before.workspaceId);
+    expect(first.id).not.toBe(r.id);
+    expect(first.title).toBe(body.text);
+    expect(r.store.workspace(first.id).decks[0].name).toBe('My draft shell deck');
+    const after = await status();
+    expect(after.workspaceId).not.toBe(first.id);
+    expect(after.conversations.some((c: any) => c.id === first.id)).toBe(true);
+    expect(((await (await send()).json()) as { id: string }).id).toBe(first.id);
+    expect(r.store.history(first.id)).toHaveLength(1);
+    expect(r.store.history(after.workspaceId)).toHaveLength(0);
+    expect(r.store.history(r.id)).toHaveLength(0);
+  } finally {
+    await r.dispose();
+  }
+});

@@ -1,6 +1,6 @@
 # 配布・運用
 
-2026-09-16。**0.3.0は複数デスクトップとチャットのeffort選択に対応しています。npm公開は認証待ち（401）で、公開済み版は0.1.8です。** 0.2.0ではデッキ・複数端末と共通shellを追加し、専用native子実行を廃止しました。検索・直接入力できるモデルpickerと既存Codex認証の再利用にも対応しています。[0.3.0の反映・検証記録](debugging-0.3.0.md)・[shellの仕様と移行](shell-workspace.md)を参照してください。以下のnpmインストール例は公開済み版です。
+2026-09-16。**0.3.1は会話を初回送信で作成し、右パネルの開閉とeffortメニューを改善しています。複数デスクトップにも対応しています。npm公開は認証待ち（401）で、公開済み版は0.1.8です。** 0.2.0ではデッキ・複数端末と共通shellを追加し、専用native子実行を廃止しました。検索・直接入力できるモデルpickerと既存Codex認証の再利用にも対応しています。[0.3.1の変更・検証記録](debugging-0.3.1.md)・[shellの仕様と移行](shell-workspace.md)を参照してください。以下のnpmインストール例は公開済み版です。
 
 ```sh
 npm install -g vibe-coders@0.1.8
@@ -26,7 +26,7 @@ npm pack
 ローカルtarballの導入後は以下の手順です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.3.0.tgz
+npm install -g /path/to/vibe-coders-0.3.1.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -104,8 +104,10 @@ Tiboが紹介した[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)�
 
 ## 複数画面とeffort
 
-チャット横の `＋` から独立した仮想デスクトップを作成します（自動作成はLinux）。選んだ画面の「シェル」から開いた端末には、その画面の `DISPLAY` と `XAUTHORITY` を渡します。「ホスト」は画面に紐づかない従来の端末です。AIは `desktop_status` でIDを調べ、`desktop_create` / `desktop_remove` と各ツールの `desktopId` を使えます。MCPの手動設定にも対象画面の選択があります。
+チャットの「画面」から右パネルを開き、`＋` で独立した仮想デスクトップを作成します（自動作成はLinux）。選んだ画面の「シェル」から開いた端末には、その画面の `DISPLAY` と `XAUTHORITY` を渡します。「ホスト」は画面に紐づかない従来の端末です。AIは `desktop_status` でIDを調べ、`desktop_create` / `desktop_remove` と各ツールの `desktopId` を使えます。MCPの手動設定にも対象画面の選択があります。
 
 旧設定 `desktop` は初回起動時に `desktops` の `default` へ移行し、操作権・VNC資格情報・MCPの対象を維持します。HTTPは `/api/desktops/:id/...`、資格情報とMCPの対象IDは `desktop:<id>` です。旧単数APIは残しません。削除と接続先変更は、その画面の実行中シェルを停止してから行います。削除前には関連MCPも解除してください。
 
 チャットのモデル名の横からeffortを選ぶと、既存の認証を維持して次の推論へ反映します。自動は指定を送らず、接続先の既定を使います。Codexのネイティブカタログ、OpenRouterの `reasoning.supported_efforts` を使用するため、対応情報を取得できないモデルに推測した選択肢は出しません。モデルを変えるとeffortは自動に戻ります。
+
+新しい会話ボタンは未送信の画面を開くだけで、最初の送信時に履歴へ追加します。下書きと添付は再読み込み後も残ります。右パネル上部の閉じるボタンは作業の表示を閉じるだけで、シェルやAIの実行は継続します。「シェル」「画面」から再表示できます。

@@ -6,6 +6,8 @@ import type { CodexAuth } from '../server/codex-auth';
 export type Snapshot = ReturnType<Store['snapshot']> & { draft: string };
 export type Status = {
   home: string;
+  workspaceId: string;
+  working: boolean;
   conversations: ReturnType<Store['listConversations']>;
   config: ReturnType<Config['public']>;
   mcp: ReturnType<McpService['status']>;

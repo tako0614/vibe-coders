@@ -32,7 +32,7 @@ describe('authenticated API boundaries', () => {
     try {
       const base = {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify({ text: 'CSRF boundary', operationId: crypto.randomUUID() }),
         headers: { Authorization: auth, 'Content-Type': 'application/json' },
       };
       expect((await app.request('/api/conversations', base)).status).toBe(403);

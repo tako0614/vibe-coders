@@ -4,6 +4,7 @@ import { api, type Status } from './api';
 import type { Action } from './App';
 import type { ModelChoice } from '../shared/models';
 import { ModelPicker } from './ModelPicker';
+import { EffortPicker } from './EffortPicker';
 
 export function ChatModelPicker({
   status,
@@ -28,7 +29,7 @@ export function ChatModelPicker({
   const ready = codex
     ? status.codex?.subscriptionReady
     : !provider!.keyRequired || status.providerKeySaved;
-  const working = status.conversations.some((c) => c.state === 'running');
+  const working = status.working;
   const name = codex ? 'Codex' : provider!.baseUrl.includes('openrouter.ai') ? 'OpenRouter' : 'API';
   const close = () => {
     dialog.current?.close();
@@ -145,27 +146,13 @@ export function ChatModelPicker({
         <ChevronDown size={14} />
       </button>
       {(efforts.length > 0 || provider?.reasoningEffort) && (
-        <label className="effort-picker">
-          <span>Effort</span>
-          <select
-            aria-label="推論の深さ"
-            value={provider?.reasoningEffort || ''}
-            disabled={working || saving || loading}
-            onChange={(e) => setEffort(e.target.value)}
-          >
-            <option value="">
-              自動{choice?.defaultReasoningEffort ? ` (${choice.defaultReasoningEffort})` : ''}
-            </option>
-            {provider?.reasoningEffort && !efforts.includes(provider.reasoningEffort) && (
-              <option value={provider.reasoningEffort}>{provider.reasoningEffort}（保存値）</option>
-            )}
-            {efforts.map((effort) => (
-              <option key={effort} value={effort}>
-                {effort}
-              </option>
-            ))}
-          </select>
-        </label>
+        <EffortPicker
+          value={provider?.reasoningEffort || ''}
+          efforts={efforts}
+          defaultEffort={choice?.defaultReasoningEffort}
+          disabled={working || saving || loading}
+          onChange={setEffort}
+        />
       )}
       {open && (
         <dialog

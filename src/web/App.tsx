@@ -53,7 +53,6 @@ export function App() {
     [settingsSection, setSettingsSection] = useState('model');
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [historyQuery, setHistoryQuery] = useState('');
-  const [creating, setCreating] = useState(false);
   const side = useRef<HTMLElement>(null),
     menu = useRef<HTMLButtonElement>(null);
   const toolsMenu = useRef<HTMLDetailsElement>(null);
@@ -121,13 +120,15 @@ export function App() {
       } catch {}
       const id =
         selectedRef.current ||
-        (status.conversations.some((c) => c.id === saved) ? saved : status.conversations[0]?.id);
+        (saved === 'new' || status.conversations.some((c) => c.id === saved) ? saved : 'new');
       if (id) {
         if (!selectedRef.current) {
           selectedRef.current = id;
           setSelected(id);
         }
-        const snapshot = await api<Snapshot>(`/conversations/${id}`);
+        const snapshot = await api<Snapshot>(
+          `/conversations/${id === 'new' ? status.workspaceId : id}`,
+        );
         if (mounted.current && id === selectedRef.current) setSnapshot(snapshot);
       }
     } catch (e) {
@@ -189,15 +190,14 @@ export function App() {
     } catch {}
     void refresh();
   };
-  const newChat = async () => {
-    if (creating) return;
-    setCreating(true);
-    await action(async () => {
-      const c = await api<{ id: string }>('/conversations', 'POST', {});
-      setHistoryQuery('');
-      choose(c.id);
-    });
-    setCreating(false);
+  const newChat = () => {
+    setHistoryQuery('');
+    if (selectedRef.current === 'new') navigate('chat');
+    else choose('new');
+  };
+  const started = (id: string) => {
+    // A send may finish after the user has navigated to another conversation.
+    if (selectedRef.current === 'new') choose(id);
   };
   const pending =
     snapshot?.requests.filter((r) => ['pending', 'processing'].includes(r.state)) || [];
@@ -279,12 +279,7 @@ export function App() {
             </button>
           )}
         </div>
-        <button
-          className="new-chat"
-          aria-label="新しい会話"
-          disabled={creating}
-          onClick={() => void newChat()}
-        >
+        <button className="new-chat" aria-label="新しい会話" onClick={() => void newChat()}>
           <SquarePen size={16} /> 新しい会話
         </button>
         <div className="history-search">
@@ -364,7 +359,6 @@ export function App() {
                 className="icon-button"
                 aria-label="新しい会話"
                 title="新しい会話"
-                disabled={creating}
                 onClick={() => void newChat()}
               >
                 <SquarePen size={18} />
@@ -457,7 +451,8 @@ export function App() {
           <Suspense fallback={<div className="loading">画面を読み込み中…</div>}>
             {view === 'chat' && (
               <AgentWorkspace
-                key={snapshot.conversation.id}
+                key={selected}
+                onStarted={selected === 'new' ? started : undefined}
                 snapshot={snapshot}
                 status={status}
                 action={action}

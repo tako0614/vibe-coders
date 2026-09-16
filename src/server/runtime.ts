@@ -109,7 +109,7 @@ export function createRuntime(options: {
   human.recover();
   codex.recover();
   agent.recover();
-  const conversation = store.listConversations()[0] || store.createConversation();
+  const conversation = store.workspaceConversation();
   const syncRoutines = () => {
     const { repo } = loadHome(home);
     const wanted = new Set(repo.routines.map((r) => `routine:${r.id}`));
