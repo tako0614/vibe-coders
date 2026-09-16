@@ -8,7 +8,7 @@
 
 Bun 1.3.14以上が必要です。初期の検証対象はLinuxです。
 
-npm公開済み版は `npm install -g vibe-coders@0.1.8`、このソースの0.2.0は配布tarballから導入できます（npm公開は認証待ち）。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
+npm公開済み版は `npm install -g vibe-coders@0.1.8`、このソースの0.2.0は配布tarballから導入できます（常用LAN版には反映済み、npm公開は認証待ち）。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
 
 ```sh
 git clone https://github.com/tako0614/vibe-coders.git
