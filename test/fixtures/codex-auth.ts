@@ -1,7 +1,9 @@
 // JSON-RPC authentication fixture; never reads or changes the host Codex account.
 import { createInterface } from 'node:readline';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 const stateFile = process.argv[2];
+const credentialFile = process.argv[3];
 const send = (value: unknown) => process.stdout.write(`${JSON.stringify(value)}\n`);
 const state = () => {
   try {
@@ -33,13 +35,25 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       ],
       nextCursor: null,
     });
-  if (req.method === 'account/read')
+  if (req.method === 'account/read') {
+    if (credentialFile && isAbsolute(credentialFile) && state().signedIn)
+      writeFileSync(
+        credentialFile,
+        JSON.stringify({
+          auth_mode: 'chatgpt',
+          tokens: {
+            access_token: `fixture.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')}.private-fixture-token`,
+            account_id: 'fixture-account',
+          },
+        }),
+      );
     reply({
       account: state().signedIn
         ? { type: 'chatgpt', email: 'private-account@example.invalid', planType: 'plus' }
         : null,
       requiresOpenaiAuth: true,
     });
+  }
   if (req.method === 'account/login/start') {
     loginId = `fixture-login-${process.pid}`;
     process.stderr.write('private-stderr-auth-marker\n');

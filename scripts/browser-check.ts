@@ -459,6 +459,7 @@ try {
   );
   await setValue('input[name="model"]', 'fixture-model');
   await evaluate(`document.querySelector('form.form-card').requestSubmit()`);
+  await until(`!!document.querySelector('.request-card input[type="password"]')`);
   await until(`!!document.querySelector('input[type="password"]')`);
   await setValue('input[type="password"]', 'browser-only-fixture-secret');
   await clickText('安全に保存');
@@ -475,7 +476,13 @@ try {
     await evaluate(
       `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('Codex')).click()`,
     );
-    await until(`document.querySelector('select[name="model"]')?.value === 'subscription-model'`);
+    await until(`document.querySelector('input[name="model"]')?.value === 'subscription-model'`);
+    await setValue('input[name="model"]', 'typed-codex-model');
+    await evaluate(`document.querySelector('input[name="model"]').blur()`);
+    await until(`document.querySelector('input[name="model"]')?.value === 'typed-codex-model'`);
+    await evaluate(`document.querySelector('button[aria-label="モデル一覧を開く"]').click()`);
+    await until(`!!document.querySelector('[role="option"]')`);
+    await evaluate(`document.querySelector('[role="option"]').click()`);
     if (
       await evaluate(
         `!!document.querySelector('.provider-card input[name="baseUrl"],.provider-card input[name="keyRequired"]')`,
@@ -491,6 +498,48 @@ try {
       `document.querySelector('.provider-card .status-chip')?.textContent.includes('接続済み')`,
     );
     await screenshot('codex-parent');
+  }
+  if (process.env.VIBE_CODER_TEST_MODEL_PORT) {
+    await clickText('設定・接続');
+    await until(`!!document.querySelector('.provider-picker')`);
+    await evaluate(
+      `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('APIキー')).click()`,
+    );
+    await setValue(
+      'input[name="baseUrl"]',
+      `http://127.0.0.1:${process.env.VIBE_CODER_TEST_MODEL_PORT}/v1`,
+    );
+    await until(`document.querySelector('input[name="model"]')?.value === ''`);
+    await setValue('input[name="credential"]', 'picker-fixture-key');
+    await evaluate(`document.querySelector('input[name="model"]').focus()`);
+    await until(`!document.querySelector('button[aria-label="モデル一覧を再取得"]').disabled`);
+    await evaluate(`document.querySelector('button[aria-label="モデル一覧を再取得"]').click()`);
+    await evaluate(`document.querySelector('input[name="model"]').focus()`);
+    await until(
+      `Array.from(document.querySelectorAll('[role="option"]')).some(e=>e.textContent.includes('Alpha picker model'))`,
+    );
+    await screenshot('model-picker');
+    await setValue('input[name="model"]', 'beta');
+    await until(`document.querySelectorAll('[role="option"]').length===1`);
+    await evaluate(`document.querySelector('[role="option"]').click()`);
+    await until(`document.querySelector('input[name="model"]').value==='fixture/beta'`);
+    await clickText('保存して接続する');
+    await until(`document.querySelector('.model-label')?.textContent.includes('fixture/beta')`);
+    await clickText('設定・接続');
+    await until(
+      `document.querySelector('input[name="credential"]')?.placeholder.includes('保存済み')`,
+    );
+    await setValue('input[name="model"]', 'fixture/manual-model');
+    await clickText('保存して接続する');
+    await until(
+      `document.querySelector('.model-label')?.textContent.includes('fixture/manual-model')`,
+    );
+    await clickText('設定・接続');
+    await until(
+      `document.querySelector('input[name="credential"]')?.placeholder.includes('保存済み')`,
+    );
+    if (await evaluate(`document.body.textContent.includes('picker-fixture-key')`))
+      throw new Error('Picker credential became visible.');
   }
   if (process.env.VIBE_CODER_TEST_DESKTOP === '1') {
     await clickText('デスクトップ');
@@ -604,6 +653,11 @@ try {
         'file edit, diff and guarded restore',
         'text and image drafts survive page reload; send clears storage before navigation',
         'provider config',
+        ...(process.env.VIBE_CODER_TEST_MODEL_PORT
+          ? [
+              'model picker search, list selection, direct entry, and saved key reuse across model changes',
+            ]
+          : []),
         'secret form',
         'mobile layout',
         'MCP setup and provider-independent npm installation form',

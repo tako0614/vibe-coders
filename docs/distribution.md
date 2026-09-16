@@ -72,7 +72,7 @@ docker compose up -d
 - Windows：Bunとnode-pty / ConPTY。PowerShellや任意CLIもコマンドを指定してPTYから起動できます。
 - PDF：Popplerの`pdftotext`。スキャン画像には別途OCRまたは画像を扱うモデル・ツールが必要です。
 - Chrome：通常のChromeと、採用するMCPサーバーの実行環境（Chrome DevTools MCPならNode.js / npx）。MCPの導入依頼を親に渡すか、汎用MCP設定で登録します。普段のChromeを使う場合は、公式手順に沿ってリモートデバッグを有効にし、接続を許可します。
-- Codex：端末上のCodex CLI。WebUIでコード認証、または同じPCのブラウザ認証を開始できます。CLIからは `vibe-coders codex login`。既存のファイル認証と、設定されている場合は既存の `CODEX_HOME` を使用します。keyringだけにログインしている場合は、このログインからファイル認証を作成してください。
+- Codex：既存の `CODEX_HOME/auth.json`（既定は `~/.codex/auth.json`）をそのまま使用します。有効な保存済み認証があれば再ログインは不要です。モデル一覧・認証更新には端末のCodex CLIを使用します。keyringのみの認証読取は未対応で、利用可能とは表示せず理由を案内します。
 - Claude：Claude Code CLIとそのログイン。親のモデル設定やAPIキーは自動で共有しません。
 
 各OSのCI定義は `.github/workflows/check.yml` にあります。定義の存在を実機試験の成功としては扱いません。
@@ -91,9 +91,11 @@ Codex認証のURL・コードはWeb認証が必要な専用APIからのみ表示
 
 ## 親をCodexサブスクで動かす
 
-「親AIの接続方法 → Codexサブスク（ChatGPTログイン）」を選びます。認証後にモデルを選び、「Codexを親AIに設定」で保存します。モデル一覧はログインする端末のCodex App Serverから取得します。
+「AI接続 → Codex」を選ぶと端末の認証を自動確認します。モデルpickerで選ぶか、モデル名を直接入力して「このモデルでチャットを始める」を押します。保存済み認証がなければコード・ブラウザ認証を案内します。モデル一覧は端末のCodex App Serverから取得します。
 
-親のループとツール実行はVibe Codersが持ち、アプリ内の接続処理がCodexのサブスク向けResponsesエンドポイントを呼びます。接続先は固定し、設定で指定した任意のURLへCodexのトークンを送りません。認証は `codex -c cli_auth_credentials_store="file"` を使い、Codex自身がファイルへの保存・更新を行います。既存のCodex設定ファイルは書き換えません。
+親のループとツール実行はVibe Codersが持ち、アプリ内の接続処理がCodexのサブスク向けResponsesエンドポイントを呼びます。接続先は固定し、設定で指定した任意のURLへCodexのトークンを送りません。既存認証はサーバー内でのみ読み、Vibe Codersの設定へコピーしません。更新・新規ログインはCodex自身に任せ、認証保存先の設定を上書きしません。
+
+OpenRouter・OpenAI互換APIも同じ検索・直接入力可能なpickerを使用します。モデル名を知らなくてもURLとAPIキーから一覧を取得できます。OpenRouterはキーなしでも公開一覧を取得でき、接続時にはAPIキーを保存します。同じURLでモデルだけを変更すると保存済みキーを引き継ぎ、別URLへそのキーを送信しません。
 
 レスポンスのストリーム終端とツール呼び出しIDを照合し、暗号化された推論コンテキストを同じモデルの次の呼び出しへ渡します。途中で切れた応答のツールは実行しません。401はトークン更新後に一度だけ再試行し、429は利用枠エラーとして表示します。別アカウントやAPI課金への自動切替はしません。
 

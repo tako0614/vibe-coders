@@ -9,6 +9,8 @@ import { homedir } from 'node:os';
 
 type AuthState =
   'unchecked' | 'missing' | 'signed_out' | 'starting' | 'waiting' | 'signed_in' | 'ready' | 'error';
+const credentialUnavailable =
+  '端末のCodexはログイン済みですが、利用できるauth.jsonがありません。keyringのみの認証には未対応です。';
 type Attempt = {
   requestId: string;
   process?: JsonProcess;
@@ -26,6 +28,7 @@ export class CodexAuth {
   private ready = false;
   private mode: string | null = null;
   private message = '';
+  private credentialSource: 'native-file' | null = null;
   private active?: Attempt;
   private closed = false;
   private probes = new Set<JsonProcess>();
@@ -35,7 +38,7 @@ export class CodexAuth {
     readonly human: HumanService,
     readonly desktop: Desktop,
     readonly home: string,
-    readonly command = ['codex', '-c', 'cli_auth_credentials_store="file"'],
+    readonly command = ['codex'],
     readonly credentialFile = join(
       process.env.CODEX_HOME || join(homedir(), '.codex'),
       'auth.json',
@@ -48,9 +51,11 @@ export class CodexAuth {
     const installed = !!Bun.which(this.command[0]);
     return {
       installed,
-      state: installed ? this.state : ('missing' as AuthState),
-      ready: installed && this.ready,
-      subscriptionReady: installed && this.ready && this.mode === 'chatgpt',
+      state: installed || this.ready ? this.state : ('missing' as AuthState),
+      ready: this.ready,
+      subscriptionReady:
+        this.ready && this.mode === 'chatgpt' && this.credentialSource === 'native-file',
+      credentialSource: this.credentialSource,
       mode: this.mode,
       message: this.message,
       ...(this.active ? { requestId: this.active.requestId } : {}),
@@ -80,7 +85,7 @@ export class CodexAuth {
   private async open() {
     if (this.closed) throw new Error('Codex authentication is closed.');
     if (!Bun.which(this.command[0])) throw new Error('Install the Codex CLI first.');
-    const client = new JsonProcess([...this.command, 'app-server'], this.home, () => {});
+    const client = new JsonProcess([...this.command, 'app-server', '--stdio'], this.home, () => {});
     this.probes.add(client);
     try {
       await client.request(
@@ -115,9 +120,25 @@ export class CodexAuth {
     this.checking = (async () => {
       let client: JsonProcess | undefined;
       try {
+        this.credentialSource = null;
+        const saved = await this.readCredentials().catch(() => null);
+        if (this.active || this.closed) return this.status();
+        if (!refreshToken && saved && (!saved.expires || saved.expires > Date.now() + 60000)) {
+          this.account({ account: { type: 'chatgpt' } });
+          this.credentialSource = 'native-file';
+          this.notify();
+          return this.status();
+        }
         client = await this.open();
-        const account = await client.request('account/read', { refreshToken }, 10000);
+        const account = await client.request(
+          'account/read',
+          { refreshToken: refreshToken || !!saved },
+          10000,
+        );
         if (!this.active && !this.closed) this.account(account);
+        if (this.mode === 'chatgpt' && (await this.readCredentials().catch(() => null)))
+          this.credentialSource = 'native-file';
+        if (this.mode === 'chatgpt' && !this.credentialSource) this.message = credentialUnavailable;
       } catch {
         if (!this.active && !this.closed) {
           this.ready = false;
@@ -139,46 +160,50 @@ export class CodexAuth {
       this.checking = undefined;
     }
   }
-  // Server-only credential access. URLs and tokens never enter configuration,
-  // tool results, API responses or model input. Codex owns refresh/persistence.
+  // Server-only access to Codex's existing credential file. Never copied into
+  // Vibe Coders settings, tool results, responses, logs or model input.
+  private async readCredentials() {
+    try {
+      const file = Bun.file(this.credentialFile);
+      if (file.size > 256 * 1024) throw new Error();
+      const auth = await file.json();
+      const token = auth.tokens?.access_token,
+        accountId = auth.tokens?.account_id;
+      if (
+        (auth.auth_mode && auth.auth_mode !== 'chatgpt') ||
+        auth.OPENAI_API_KEY ||
+        typeof token !== 'string' ||
+        !token ||
+        typeof accountId !== 'string' ||
+        !accountId ||
+        /[\r\n]/.test(token + accountId)
+      )
+        throw new Error();
+      let expires = 0;
+      try {
+        expires =
+          Number(JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).exp) * 1000;
+      } catch {}
+      return { token, accountId, expires };
+    } catch {
+      throw new Error('CODEX_LOGIN_REQUIRED');
+    }
+  }
   async subscriptionCredentials(forceRefresh = false) {
     this.store.assertEnabled();
     if (this.active) throw new Error('CODEX_LOGIN_REQUIRED');
-    const read = async () => {
-      try {
-        const file = Bun.file(this.credentialFile);
-        if (file.size > 256 * 1024) throw new Error();
-        const auth = await file.json();
-        const token = auth.tokens?.access_token,
-          accountId = auth.tokens?.account_id;
-        if (
-          (auth.auth_mode && auth.auth_mode !== 'chatgpt') ||
-          auth.OPENAI_API_KEY ||
-          typeof token !== 'string' ||
-          !token ||
-          typeof accountId !== 'string' ||
-          !accountId ||
-          /[\r\n]/.test(token + accountId)
-        )
-          throw new Error();
-        let expires = 0;
-        try {
-          expires =
-            Number(JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).exp) * 1000;
-        } catch {}
-        return { token, accountId, expires };
-      } catch {
-        throw new Error('CODEX_LOGIN_REQUIRED');
-      }
-    };
-    let value = await read();
+    let value = await this.readCredentials().catch((error) => {
+      if (this.ready && this.mode === 'chatgpt') throw new Error('CODEX_CREDENTIALS_UNAVAILABLE');
+      throw error;
+    });
     if (forceRefresh || (value.expires && value.expires < Date.now() + 60000)) {
       if (!(await this.refresh(true)).subscriptionReady) throw new Error('CODEX_LOGIN_REQUIRED');
-      value = await read();
+      value = await this.readCredentials();
       if (value.expires && value.expires < Date.now()) throw new Error('CODEX_LOGIN_REQUIRED');
     }
-    if (!this.ready || this.mode !== 'chatgpt') {
+    if (!this.ready || this.mode !== 'chatgpt' || !this.credentialSource) {
       this.account({ account: { type: 'chatgpt' } });
+      this.credentialSource = 'native-file';
       this.notify();
     }
     return { token: value.token, accountId: value.accountId };
@@ -234,6 +259,7 @@ export class CodexAuth {
       finish: (success) => finish(success),
     };
     this.active = attempt;
+    this.credentialSource = null;
     this.state = 'starting';
     this.ready = false;
     this.message = '';
@@ -261,7 +287,8 @@ export class CodexAuth {
     if (attempt !== this.active || attempt.ending) return;
     if (!force && account.account?.type === 'chatgpt') {
       this.account(account);
-      await this.end(attempt, true);
+      if (await this.readCredentials().catch(() => null)) this.credentialSource = 'native-file';
+      await this.end(attempt, true, this.credentialSource ? '' : credentialUnavailable);
       return;
     }
     this.desktop.handoff('human');
@@ -316,10 +343,16 @@ export class CodexAuth {
     const account = await attempt.process!.request('account/read', { refreshToken: false }, 10000);
     if (attempt !== this.active || attempt.ending) return;
     this.account(account);
+    if (this.mode === 'chatgpt' && (await this.readCredentials().catch(() => null)))
+      this.credentialSource = 'native-file';
     await this.end(
       attempt,
       this.ready,
-      this.ready ? '' : 'Codexのログイン状態を確認できませんでした。',
+      this.ready
+        ? this.credentialSource
+          ? ''
+          : credentialUnavailable
+        : 'Codexのログイン状態を確認できませんでした。',
     );
   }
   private async end(attempt: Attempt, success: boolean, message = '') {

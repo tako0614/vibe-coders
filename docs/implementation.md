@@ -21,7 +21,7 @@
 | CLI実行 | 共通shellのPTY / pipe、継続入力・EOF・待機・停止、デッキ・グリッド・最大化・モバイル切り替え。Codex / Claudeも通常のCLIとして起動 |
 | MCP導入        | AI不要のnpm導入・バージョン固定・discovery、認証入力後の再接続。汎用の導入依頼、環境・実行ファイルの確認、親からの追加・更新・再接続・切断・削除。接続は独立runで行い、実ツールを次の推論へ反映。Chromeは通常アプリとMCPを導入する利用例   |
 | Codex親モデル  | サブスク認証によるResponses接続。親ループ・MCP・予定・Atomは本アプリが所有。ツールIDとストリーム終端の照合、暗号化コンテキスト継続、画像入力、401時の一度の更新、429で停止 |
-| Codex認証      | App ServerによるChatGPTコード／ブラウザ認証、ユーザー専用のURL・コード表示、成功通知とアカウント確認、親・子の認証待ちと元の作業の再開、取消・全停止・再起動時の処理       |
+| モデル選択・認証 | Codex・OpenRouter・OpenAI互換APIの検索と直接入力ができるpicker。Codexの保存済みauth.jsonを自動利用。必要な場合のコード／ブラウザ認証、親の認証待ちからの再開、取消・全停止・再起動時の処理 |
 | GUI            | Linux X11直接操作とVNC経由。画面取得・クリック・キー・Unicode文字・スクロール・ドラッグ。同じVNCをWebUIでも利用                                                            |
 | 別OSの画面     | VNCサーバーを公開できるWayland / macOS / Windowsと、WSLから別ホストの画面への接続経路。リモート通信はloopbackへのSSH転送等を使用                                           |
 | Windows端末    | shellはcmd、PTYはnode-pty / ConPTY。Linux/macOSはBun PTY                                                                                                                   |

@@ -98,6 +98,6 @@ bun run db:generate    # Drizzleスキーマ変更時にmigrationを生成
 
 DBのmigrationはバックエンド起動時に適用します。依存は `bun.lock` に固定しています。Atom Memoryはnpm公開済みの0.7.0を使い、SQLiteドライバのimportだけをBun向けに変更したパッチを管理しています。
 
-0.2.0ではshellの入口を共通化し、DeckIDE型のデッキ・複数端末・最大化・手動引き継ぎを追加しました。専用native子実行を廃止し、PTYと継続的な標準入出力を同じ実行管理で扱います。[仕様と移行](docs/shell-workspace.md)・[検証記録](docs/debugging-0.2.0.md) を参照してください。0.1.8の会話要約・ファイル編集/復元・下書き・MCP導入は継続します。
+0.2.0ではshellの入口を共通化し、DeckIDE型のデッキ・複数端末・最大化・手動引き継ぎを追加しました。専用native子実行を廃止し、PTYと継続的な標準入出力を同じ実行管理で扱います。Codex・OpenRouter・OpenAI互換APIは検索・直接入力ができるモデルpickerに対応し、Codexの保存済みauth.jsonを再ログインなしで利用します。[仕様と移行](docs/shell-workspace.md)・[検証記録](docs/debugging-0.2.0.md) を参照してください。0.1.8の会話要約・ファイル編集/復元・下書き・MCP導入は継続します。
 
 0.1.7の端末・デスクトップ改善は [端末の遅延と自動デスクトップ](docs/debugging-0.1.7.md)。0.1.6の修正と検証範囲は [動作修正と画面整理](docs/debugging-0.1.6.md)。設計全体は [plan.md](plan.md)、実装範囲・実機検証・外部条件待ちは [実装状況](docs/implementation.md)、配布方法は [配布・運用](docs/distribution.md) に記録しています。Codexサブスクによる親のファイル操作・記憶・人間入力と、親がMCPを登録して実Chromeを読むところまで確認しています。OpenAI互換APIの実接続、Claudeの再ログイン、各OSの実機検証などは残っています。

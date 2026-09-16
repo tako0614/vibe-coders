@@ -22,6 +22,8 @@ import { shellSchema } from '../shared/shell';
 import { requests } from './db/schema';
 import type { Runtime } from './runtime';
 import type { WSContext } from 'hono/ws';
+import { providerCredentialSchema } from '../shared/models';
+import { providerModels, savedProviderCredential } from './provider-models';
 
 export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {}) {
   const r = runtime,
@@ -144,6 +146,10 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       desktop: r.desktop.status(),
       stopped: r.store.stopped,
       codex: r.codex.status(),
+      providerKeySaved:
+        !!r.config.read().provider &&
+        r.config.read().provider!.kind !== 'codex' &&
+        !!r.vault.get('provider:main', r.config.read().provider!.revision),
       providerReady:
         !!r.config.read().provider &&
         (r.config.read().provider!.kind === 'codex'
@@ -407,10 +413,24 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
     r.memory.storage.flush();
     return c.json(result, 201);
   });
+  app.post('/api/config/provider/models', async (c) =>
+    c.json(await providerModels(r.config, r.vault, await c.req.json())),
+  );
   app.put('/api/config/provider', async (c) => {
-    const { revision, provider } = z
-      .object({ revision: z.number().int(), provider: providerSchema })
+    const { revision, provider, credential } = z
+      .object({
+        revision: z.number().int(),
+        provider: providerSchema,
+        credential: providerCredentialSchema.optional(),
+      })
+      .strict()
       .parse(await c.req.json());
+    if (provider.kind === 'codex' && credential)
+      throw new Error('Codexは端末の認証情報を使用します。');
+    const key =
+      provider.kind === 'codex' || !provider.keyRequired
+        ? undefined
+        : credential || savedProviderCredential(r.config, r.vault, provider.baseUrl);
     const config = r.config.update(revision, (v) => {
       v.provider = {
         ...provider,
@@ -424,9 +444,15 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
         revision: (v.provider?.revision || 0) + 1,
       };
     });
+    if (key)
+      r.config.lock(() => {
+        if (r.config.read().revision !== config.revision)
+          throw new Error('接続設定が変更されました。再読み込みしてください。');
+        r.vault.put('provider:main', config.provider!.revision, crypto.randomUUID(), key);
+      });
     r.store.notify();
     if (provider.kind === 'codex') void r.codex.refresh().catch(() => {});
-    return c.json(r.config.public());
+    return c.json({ ...r.config.public(), credentialReady: !provider.keyRequired || !!key });
   });
   app.post('/api/config/secret-request', async (c) => {
     const { conversationId, targetId } = z

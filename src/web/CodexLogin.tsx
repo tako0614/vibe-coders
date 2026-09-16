@@ -18,12 +18,10 @@ export function CodexLogin({
   conversationId,
   action,
   requestId,
-  beforeLogin,
 }: {
   conversationId: string;
   action: Action;
   requestId?: string;
-  beforeLogin?: () => Promise<void>;
 }) {
   const [auth, setAuth] = useState<Auth>();
   const [error, setError] = useState(''),
@@ -61,7 +59,6 @@ export function CodexLogin({
     action(async () => {
       setStarting(true);
       try {
-        await beforeLogin?.();
         await api('/codex/auth/login', 'POST', { conversationId, method });
         setAuth(await api<Auth>('/codex/auth'));
       } finally {
@@ -80,7 +77,10 @@ export function CodexLogin({
         </strong>
         {auth?.subscriptionReady ? ' · ChatGPT' : ''}
       </p>
-      {auth?.ready && !auth.subscriptionReady && (
+      {auth?.credentialSource === 'native-file' && (
+        <p>端末のCodex認証を使用中。再ログインは不要です。</p>
+      )}
+      {auth?.ready && auth.mode !== 'chatgpt' && !auth.subscriptionReady && (
         <p>ChatGPTのサブスク認証へログインしてください。</p>
       )}
       {auth?.message && <p>{auth.message}</p>}
@@ -102,27 +102,30 @@ export function CodexLogin({
       )}
       <div className="form-actions">
         <button type="button" disabled={busy} onClick={() => void action(refresh)}>
-          認証状態を確認
+          端末の認証を再読み込み
         </button>
-        {auth && auth.state !== 'unchecked' && !auth.subscriptionReady && !busy && (
-          <>
-            <button
-              type="button"
-              className="primary"
-              disabled={auth?.installed === false}
-              onClick={() => void start('device')}
-            >
-              {beforeLogin ? 'ログインして接続' : 'コードでログイン'}
-            </button>
-            <button
-              type="button"
-              disabled={auth?.installed === false}
-              onClick={() => void start('browser')}
-            >
-              サーバー上のブラウザでログイン
-            </button>
-          </>
-        )}
+        {auth &&
+          auth.state !== 'unchecked' &&
+          (!auth.ready || auth.mode !== 'chatgpt') &&
+          !busy && (
+            <>
+              <button
+                type="button"
+                className="primary"
+                disabled={auth?.installed === false}
+                onClick={() => void start('device')}
+              >
+                コードでログイン
+              </button>
+              <button
+                type="button"
+                disabled={auth?.installed === false}
+                onClick={() => void start('browser')}
+              >
+                サーバー上のブラウザでログイン
+              </button>
+            </>
+          )}
         {busy && (
           <button
             type="button"

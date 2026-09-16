@@ -12,6 +12,7 @@ export type Status = {
   desktop: ReturnType<Desktop['status']>;
   stopped: boolean;
   providerReady: boolean;
+  providerKeySaved: boolean;
   codex: ReturnType<CodexAuth['status']>;
 };
 let authorization = '';

@@ -1,33 +1,44 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, CheckCircle2, LoaderCircle, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, CheckCircle2, LoaderCircle } from 'lucide-react';
 import { api, type Snapshot, type Status } from './api';
 import type { Action, View } from './App';
 import { CodexLogin } from './CodexLogin';
+import { ModelPicker } from './ModelPicker';
+import { providerUrl, type ModelChoice } from '../shared/models';
 
-export function ProviderSettings({
-  status,
-  snapshot,
-  action,
-  onView,
-}: {
-  status: Status;
-  snapshot: Snapshot;
-  action: Action;
-  onView: (view: View) => void;
-}) {
-  const provider = status.config.provider;
+type Props = { status: Status; snapshot: Snapshot; action: Action; onView: (view: View) => void };
+export function ProviderSettings(props: Props) {
+  const provider = props.status.config.provider;
   const [kind, setKind] = useState(provider?.kind || (provider ? 'openai' : 'codex'));
+  return (
+    <div className="provider-settings">
+      <div className="provider-picker" role="group" aria-label="AIの接続方法">
+        <button className={kind === 'codex' ? 'selected' : ''} onClick={() => setKind('codex')}>
+          <strong>Codex</strong>
+          <span>端末のChatGPT認証で使う</span>
+        </button>
+        <button className={kind === 'openai' ? 'selected' : ''} onClick={() => setKind('openai')}>
+          <strong>APIキー</strong>
+          <span>OpenRouter・OpenAI互換</span>
+        </button>
+      </div>
+      {kind === 'codex' ? <CodexSettings {...props} /> : <ApiSettings {...props} />}
+    </div>
+  );
+}
+
+function CodexSettings({ status, snapshot, action, onView }: Props) {
+  const provider = status.config.provider;
   const [model, setModel] = useState(provider?.kind === 'codex' ? provider.model : '');
-  const [models, setModels] = useState<{ id: string; name: string; isDefault: boolean }[]>([]);
-  const [loading, setLoading] = useState(false),
+  const [models, setModels] = useState<ModelChoice[]>([]),
+    [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false);
   const [error, setError] = useState(''),
     [reload, setReload] = useState(0);
   useEffect(() => {
-    if (kind !== 'codex') return;
     let current = true;
     setLoading(true);
-    void api<typeof models>('/codex/models')
+    void api<ModelChoice[]>('/codex/models')
       .then((value) => {
         if (!current) return;
         setModels(value);
@@ -38,9 +49,7 @@ export function ProviderSettings({
       })
       .catch(() => {
         if (current)
-          setError(
-            'モデルを取得できませんでした。サーバーのCodex CLIを確認して、再読み込みしてください。',
-          );
+          setError('一覧を取得できません。モデル名を直接入力するか、Codex CLIを確認してください。');
       })
       .finally(() => {
         if (current) setLoading(false);
@@ -48,208 +57,245 @@ export function ProviderSettings({
     return () => {
       current = false;
     };
-  }, [kind, status.codex?.subscriptionReady, reload]);
-  const saveCodex = async () => {
-    if (!model) throw new Error('利用するモデルを選択してください。');
-    await api('/config/provider', 'PUT', {
-      revision: status.config.revision,
-      provider: {
-        kind: 'codex',
-        model,
-        baseUrl: 'https://chatgpt.com/backend-api/codex',
-        supportsImages: true,
-        keyRequired: false,
-      },
-    });
-  };
-  const connected = status.providerReady && (provider?.kind || 'openai') === kind;
+  }, [status.codex?.subscriptionReady, reload]);
+  const connected = status.providerReady && provider?.kind === 'codex';
   return (
-    <div className="provider-settings">
-      <div className="provider-picker" role="group" aria-label="AIの接続方法">
-        <button className={kind === 'codex' ? 'selected' : ''} onClick={() => setKind('codex')}>
-          <strong>Codex</strong>
-          <span>ChatGPTのサブスクで使う</span>
+    <section className="form-card provider-card">
+      <div className="section-heading">
+        <div>
+          <h2>Codexに接続</h2>
+          <p>この端末のCodexに保存された認証情報を使います。</p>
+        </div>
+        <span className={`status-chip ${connected ? 'ready' : ''}`}>
+          {connected ? '接続済み' : '未接続'}
+        </span>
+      </div>
+      <CodexLogin conversationId={snapshot.conversation.id} action={action} />
+      <ModelPicker
+        value={model}
+        onChange={setModel}
+        models={models}
+        loading={loading}
+        error={error}
+        reload={() => setReload((n) => n + 1)}
+        disabled={saving}
+      />
+      <button
+        className="primary connect-button"
+        disabled={saving || !model.trim() || !status.codex?.subscriptionReady}
+        onClick={() =>
+          void action(async () => {
+            setSaving(true);
+            try {
+              await api('/config/provider', 'PUT', {
+                revision: status.config.revision,
+                provider: {
+                  kind: 'codex',
+                  model: model.trim(),
+                  baseUrl: 'https://chatgpt.com/backend-api/codex',
+                  supportsImages: true,
+                  keyRequired: false,
+                },
+              });
+              onView('chat');
+            } finally {
+              setSaving(false);
+            }
+          })
+        }
+      >
+        {saving ? (
+          <LoaderCircle size={16} className="spin" />
+        ) : connected ? (
+          <CheckCircle2 size={16} />
+        ) : (
+          <ArrowRight size={16} />
+        )}
+        {saving
+          ? '接続を保存中…'
+          : connected && provider?.model === model
+            ? 'チャットを開く'
+            : 'このモデルでチャットを始める'}
+      </button>
+    </section>
+  );
+}
+
+function ApiSettings({ status, snapshot, action, onView }: Props) {
+  const provider = status.config.provider?.kind !== 'codex' ? status.config.provider : undefined;
+  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl || 'https://openrouter.ai/api/v1');
+  const [model, setModel] = useState(provider?.model || ''),
+    [credential, setCredential] = useState('');
+  const [keyRequired, setKeyRequired] = useState(provider?.keyRequired ?? true),
+    [supportsImages, setSupportsImages] = useState(provider?.supportsImages ?? true);
+  const [models, setModels] = useState<ModelChoice[]>([]),
+    [loading, setLoading] = useState(false),
+    [saving, setSaving] = useState(false);
+  const [error, setError] = useState(''),
+    [reload, setReload] = useState(0);
+  const credentialRef = useRef(credential);
+  credentialRef.current = credential;
+  const savedKey =
+    !!provider &&
+    baseUrl.replace(/\/+$/, '') === provider.baseUrl.replace(/\/+$/, '') &&
+    status.providerKeySaved;
+  const connected = status.providerReady && !!provider;
+  useEffect(() => {
+    let current = true;
+    setModels([]);
+    setError('');
+    setLoading(true);
+    const timer = setTimeout(() => {
+      void api<ModelChoice[]>('/config/provider/models', 'POST', {
+        baseUrl,
+        useSavedCredential: keyRequired,
+        ...(credentialRef.current && keyRequired ? { credential: credentialRef.current } : {}),
+      })
+        .then((value) => {
+          if (current) {
+            setModels(value);
+            setError('');
+          }
+        })
+        .catch((e) => {
+          if (current) setError(e instanceof Error ? e.message : '一覧を取得できません。');
+        })
+        .finally(() => {
+          if (current) setLoading(false);
+        });
+    }, 250);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [baseUrl, reload, keyRequired, savedKey]);
+  const changeUrl = (url: string) => {
+    setBaseUrl(url);
+    setModel('');
+    setCredential('');
+  };
+  return (
+    <form
+      className="form-card provider-card"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void action(async () => {
+          setSaving(true);
+          try {
+            const result = await api<{ credentialReady: boolean }>('/config/provider', 'PUT', {
+              revision: status.config.revision,
+              provider: {
+                kind: 'openai',
+                baseUrl: providerUrl(baseUrl),
+                model: model.trim(),
+                supportsImages,
+                keyRequired,
+              },
+              ...(credential && keyRequired ? { credential } : {}),
+            });
+            setCredential('');
+            if (!result.credentialReady) {
+              await api('/config/secret-request', 'POST', {
+                conversationId: snapshot.conversation.id,
+                targetId: 'provider:main',
+              });
+              onView('requests');
+            } else onView('chat');
+          } finally {
+            setSaving(false);
+          }
+        });
+      }}
+    >
+      <div className="section-heading">
+        <div>
+          <h2>APIに接続</h2>
+          <p>サービスを選んで、モデル一覧から接続できます。</p>
+        </div>
+        <span className={`status-chip ${connected ? 'ready' : ''}`}>
+          {connected ? '接続済み' : '未接続'}
+        </span>
+      </div>
+      <div className="provider-presets" role="group" aria-label="APIサービス">
+        <button type="button" onClick={() => changeUrl('https://openrouter.ai/api/v1')}>
+          OpenRouter
         </button>
-        <button className={kind === 'openai' ? 'selected' : ''} onClick={() => setKind('openai')}>
-          <strong>APIキー</strong>
-          <span>OpenAI互換のサービス</span>
+        <button type="button" onClick={() => changeUrl('https://api.openai.com/v1')}>
+          OpenAI
         </button>
       </div>
-      {kind === 'codex' ? (
-        <section className="form-card provider-card">
-          <div className="section-heading">
-            <div>
-              <h2>Codexに接続</h2>
-              <p>ログインしたアカウントで、チャットやツールを実行します。</p>
-            </div>
-            <span className={`status-chip ${connected ? 'ready' : ''}`}>
-              {connected ? '接続済み' : '未接続'}
-            </span>
-          </div>
-          <label>
-            モデル
-            <select
-              name="model"
-              value={model}
-              disabled={loading || saving}
-              onChange={(e) => setModel(e.target.value)}
-            >
-              {!model && <option value="">{loading ? 'モデルを取得中…' : 'モデルを選択'}</option>}
-              {model && !models.some((m) => m.id === model) && (
-                <option value={model}>{model}</option>
-              )}
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                  {m.isDefault ? '（既定）' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          {error && (
-            <div className="inline-error" role="alert">
-              {error}
-              <button type="button" onClick={() => setReload((n) => n + 1)}>
-                <RefreshCw size={14} />
-                再読み込み
-              </button>
-            </div>
-          )}
-          <CodexLogin
-            conversationId={snapshot.conversation.id}
-            action={action}
-            beforeLogin={saveCodex}
+      <label>
+        APIのURL
+        <input
+          name="baseUrl"
+          type="url"
+          value={baseUrl}
+          onChange={(e) => changeUrl(e.target.value)}
+          required
+          disabled={saving}
+        />
+      </label>
+      {keyRequired && (
+        <label>
+          APIキー
+          <input
+            name="credential"
+            type="password"
+            autoComplete="new-password"
+            value={credential}
+            maxLength={16000}
+            onChange={(e) => setCredential(e.target.value)}
+            onBlur={() => {
+              if (credential) setReload((n) => n + 1);
+            }}
+            disabled={saving}
+            placeholder={
+              savedKey
+                ? '保存済みのキーを使用（変更する場合だけ入力）'
+                : 'キーを入力するとモデル一覧も取得できます'
+            }
           />
-          {status.codex?.subscriptionReady && (
-            <button
-              className="primary connect-button"
-              disabled={saving || !model}
-              onClick={() =>
-                void action(async () => {
-                  setSaving(true);
-                  try {
-                    await saveCodex();
-                    onView('chat');
-                  } finally {
-                    setSaving(false);
-                  }
-                })
-              }
-            >
-              {saving ? (
-                <LoaderCircle size={16} className="spin" />
-              ) : connected ? (
-                <CheckCircle2 size={16} />
-              ) : (
-                <ArrowRight size={16} />
-              )}
-              {saving
-                ? '接続を保存中…'
-                : connected && provider?.model === model
-                  ? 'チャットを開く'
-                  : 'このモデルでチャットを始める'}
-            </button>
-          )}
-          {!status.codex?.subscriptionReady && (
-            <p className="connection-help">
-              ログインすると、選択したモデルへの接続も保存されます。
-            </p>
-          )}
-        </section>
-      ) : (
-        <form
-          className="form-card provider-card"
-          key={provider?.revision || 0}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const f = new FormData(event.currentTarget);
-            void action(async () => {
-              setSaving(true);
-              try {
-                await api('/config/provider', 'PUT', {
-                  revision: status.config.revision,
-                  provider: {
-                    kind: 'openai',
-                    baseUrl: String(f.get('baseUrl')),
-                    model: String(f.get('model')),
-                    supportsImages: f.get('supportsImages') === 'on',
-                    keyRequired: f.get('keyRequired') === 'on',
-                  },
-                });
-                if (f.get('keyRequired') === 'on') {
-                  await api('/config/secret-request', 'POST', {
-                    conversationId: snapshot.conversation.id,
-                    targetId: 'provider:main',
-                  });
-                  onView('requests');
-                } else onView('chat');
-              } finally {
-                setSaving(false);
-              }
-            });
-          }}
-        >
-          <div className="section-heading">
-            <div>
-              <h2>APIに接続</h2>
-              <p>利用するサービスのURLとモデルを指定します。</p>
-            </div>
-            <span className={`status-chip ${connected ? 'ready' : ''}`}>
-              {connected ? '接続済み' : '未接続'}
-            </span>
-          </div>
-          <label>
-            APIのURL
-            <input
-              name="baseUrl"
-              type="url"
-              defaultValue={
-                provider?.kind !== 'codex'
-                  ? provider?.baseUrl || 'https://api.openai.com/v1'
-                  : 'https://api.openai.com/v1'
-              }
-              required
-            />
-          </label>
-          <label>
-            モデルID
-            <input
-              name="model"
-              defaultValue={provider?.kind !== 'codex' ? provider?.model : ''}
-              placeholder="サービスが提供するモデルID"
-              required
-            />
-          </label>
-          <div className="form-grid">
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                name="supportsImages"
-                defaultChecked={provider?.supportsImages ?? true}
-              />
-              画像を送信できる
-            </label>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                name="keyRequired"
-                defaultChecked={provider?.kind === 'codex' ? true : (provider?.keyRequired ?? true)}
-              />
-              APIキーを使用する
-            </label>
-          </div>
-          <button className="primary" disabled={saving}>
-            {saving ? '保存中…' : '保存して接続する'}
-          </button>
-          {connected && (
-            <button type="button" onClick={() => onView('chat')}>
-              チャットへ戻る
-              <ArrowRight size={14} />
-            </button>
-          )}
-          <small className="muted">APIキーは次の専用入力で保存します。</small>
-        </form>
+          <small className="muted">接続設定専用の入力です。チャットには送信しません。</small>
+        </label>
       )}
-    </div>
+      <ModelPicker
+        value={model}
+        onChange={setModel}
+        models={models}
+        loading={loading}
+        error={error}
+        reload={() => setReload((n) => n + 1)}
+        disabled={saving}
+      />
+      <div className="form-grid">
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            name="supportsImages"
+            checked={supportsImages}
+            onChange={(e) => setSupportsImages(e.target.checked)}
+          />
+          画像を送信できる
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            name="keyRequired"
+            checked={keyRequired}
+            onChange={(e) => setKeyRequired(e.target.checked)}
+          />
+          APIキーを使用する
+        </label>
+      </div>
+      <button className="primary" disabled={saving || !model.trim()}>
+        {saving ? '保存中…' : '保存して接続する'}
+      </button>
+      {connected && (
+        <button type="button" onClick={() => onView('chat')}>
+          チャットへ戻る
+          <ArrowRight size={14} />
+        </button>
+      )}
+    </form>
   );
 }

@@ -17,6 +17,7 @@ const useAuthFixture = async (r: Awaited<ReturnType<typeof fixture>>) => {
     process.execPath,
     fileURLToPath(new URL('./fixtures/codex-auth.ts', import.meta.url)),
     state,
+    r.codex.credentialFile,
   );
   return state;
 };

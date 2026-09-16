@@ -15,6 +15,7 @@ if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     process.execPath,
     fileURLToPath(new URL('./codex-auth.ts', import.meta.url)),
     state,
+    runtime.codex.credentialFile,
   ];
   runtime.codex.command.splice(0, runtime.codex.command.length, ...program);
 }
@@ -24,6 +25,22 @@ const { app, websocket } = createHttp(runtime, {
 });
 const closeDesktop =
   process.env.VIBE_CODER_TEST_DESKTOP === '1' ? await previewDesktop(runtime) : undefined;
+const modelServer = process.env.VIBE_CODER_TEST_MODEL_PORT
+  ? Bun.serve({
+      hostname: '127.0.0.1',
+      port: Number(process.env.VIBE_CODER_TEST_MODEL_PORT),
+      fetch(request) {
+        if (request.headers.get('authorization') !== 'Bearer picker-fixture-key')
+          return new Response('', { status: 401 });
+        return Response.json({
+          data: [
+            { id: 'fixture/alpha', name: 'Alpha picker model' },
+            { id: 'fixture/beta', name: 'Beta picker model' },
+          ],
+        });
+      },
+    })
+  : undefined;
 const server = Bun.serve({
   hostname: process.env.VIBE_CODER_TEST_HOST || '127.0.0.1',
   port,
@@ -35,6 +52,7 @@ console.log(`Isolated preview API on ${port}; fixture account owner / test-only-
 console.log(`Fixture directory: ${runtime.root}`);
 const cleanup = async () => {
   server.stop(true);
+  modelServer?.stop(true);
   await runtime.dispose();
   await closeDesktop?.();
   process.exit(0);
