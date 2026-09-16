@@ -7,7 +7,7 @@
 Bun 1.3.14以上を先にインストールしてください。
 
 ```sh
-npm install -g vibe-coders@0.1.8
+npm install -g vibe-coders@0.2.0
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -21,7 +21,8 @@ vibe-coders
 - チャット、画像・テキスト・PDF添付、非同期の人間入力、認証再確認
 - チャットの下書き・添付画像をブラウザへ保存、長い会話の自動要約（元の履歴は保持）
 - ファイルの編集・差分・内容照合つき復元、shell・PTY、同じ端末の手動操作、再起動時の状態復帰
-- Codex App Server / Claude Code連携、実行中の追加指示、セッション再開
+- デッキ・複数端末のグリッド・最大化・モバイル切り替え、Codex / Claudeを含む任意CLIの共通shell実行
+- 継続的な標準入力、EOF、bounded wait、PTYの現在画面、操作権を照合した人間とAIの引き継ぎ
 - stdio / HTTP MCP、導入依頼・動的追加・更新・再接続、複数選択・初期値付きフォーム、URL認証、OAuth（事前登録クライアントにも対応）
 - **Codexのサブスク枠で親エージェントを実行**。ChatGPTログイン、モデル一覧、画像・ツール呼び出し、認証待ちからの再開
 - Linuxのデスクトップを自動接続。画面のないホストには専用の仮想画面、Chrome・端末の起動、AI操作中のプレビュー
@@ -54,3 +55,5 @@ CodexサブスクはCodex CLIのファイル認証を使います。WebUIの親�
 全停止は管理下の実行を止めます。任意shellは起動したOSユーザーの権限で動きます。WebUIは単一所有者向けの管理画面です。外部公開する場合はHTTPSと正確な `VIBE_CODER_ORIGIN` を設定してください。
 
 Atom Memoryは0.7.0を使用し、SQLiteドライバのimportをBun向けに置き換えてbundleしています。依存ライブラリのライセンス文は `THIRD_PARTY_LICENSES.txt` に同梱しています。
+
+0.2.0から子実行専用のnativeツール・APIを廃止しました。Codex / Claudeも通常のshellコマンドとして起動します。Codexサブスクの親モデル接続とログインは利用できます。ブラウザ再接続は動作中の端末へ戻りますが、サーバー再起動ではプロセスを再実行せず中断扱いにします。

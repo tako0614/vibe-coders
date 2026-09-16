@@ -91,7 +91,7 @@ test('a terminal opened by the user is immediately writable and Ctrl-C returns t
     const response = await app.request('/api/runs', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ conversationId: r.id, kind: 'terminal' }),
+      body: JSON.stringify({ conversationId: r.id, spec: { mode: 'pty' } }),
     });
     const run = (await response.json()) as { id: string; epoch: number; owner: string };
     expect(run.owner).toBe('human');

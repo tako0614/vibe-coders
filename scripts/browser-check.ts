@@ -82,6 +82,8 @@ const screenshot = async (name: string) => {
   );
   await Bun.write(`/tmp/vibe-coder-browser/${name}.png`, Buffer.from(result.data, 'base64'));
 };
+const basicAuth = process.env.VIBE_CODER_TEST_BASIC === '1';
+const browserOrigin = process.env.VIBE_CODER_TEST_ORIGIN || 'http://127.0.0.1:5173';
 const errors: string[] = [];
 await command('Runtime.enable', {}, sessionId);
 await command('Network.enable', {}, sessionId);
@@ -89,12 +91,38 @@ await command('Page.enable', {}, sessionId);
 const old = ws.onmessage!;
 ws.onmessage = (event) => {
   const data = JSON.parse(String(event.data));
+  if (data.sessionId === sessionId && data.method === 'Fetch.requestPaused')
+    void command('Fetch.continueRequest', { requestId: data.params.requestId }, sessionId).catch(
+      () => {},
+    );
+  if (data.sessionId === sessionId && data.method === 'Fetch.authRequired')
+    void command(
+      'Fetch.continueWithAuth',
+      {
+        requestId: data.params.requestId,
+        authChallengeResponse:
+          new URL(data.params.request.url).origin === new URL(browserOrigin).origin
+            ? {
+                response: 'ProvideCredentials',
+                username: 'owner',
+                password: 'test-only-password-123',
+              }
+            : { response: 'CancelAuth' },
+      },
+      sessionId,
+    ).catch(() => {});
   if (data.sessionId === sessionId && data.method === 'Runtime.exceptionThrown')
     errors.push(data.params.exceptionDetails.text);
   old.call(ws, event);
 };
 mkdirSync('/tmp/vibe-coder-browser', { recursive: true });
 try {
+  if (basicAuth)
+    await command(
+      'Fetch.enable',
+      { handleAuthRequests: true, patterns: [{ urlPattern: '*' }] },
+      sessionId,
+    );
   const navigation = await command(
     'Page.navigate',
     { url: process.env.VIBE_CODER_TEST_ORIGIN || 'http://127.0.0.1:5173' },
@@ -106,10 +134,12 @@ try {
     { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
     sessionId,
   );
-  await until(`!!document.querySelector('input[name="username"]')`);
-  await setValue('input[name="username"]', 'owner');
-  await setValue('input[name="password"]', 'test-only-password-123');
-  await evaluate(`document.querySelector('form').requestSubmit()`);
+  if (!basicAuth) {
+    await until(`!!document.querySelector('input[name="username"]')`);
+    await setValue('input[name="username"]', 'owner');
+    await setValue('input[name="password"]', 'test-only-password-123');
+    await evaluate(`document.querySelector('form').requestSubmit()`);
+  }
   await until(`!!document.querySelector('.welcome')`);
   await screenshot('desktop');
   await setValue('.composer textarea', '送信済みの下書きを残さない');
@@ -127,14 +157,12 @@ try {
   await clickText('新しい会話');
   await until(`document.querySelectorAll('.conversation-list button').length > ${previousChats}`);
   await clickText('ターミナル');
-  await until(`!!document.querySelector('.native-launch')`);
-  await evaluate(`document.querySelector('.native-launch').open=true`);
   if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     const authState = process.env.VIBE_CODER_TEST_AUTH_STATE;
-    if (!authState)
-      throw new Error('Use the same isolated fixture auth-state path as the preview.');
-    await setValue('textarea[name="prompt"]', 'auth-ui-original');
-    await evaluate(`document.querySelector('form.form-card').requestSubmit()`);
+    if (!authState) throw new Error('Use the fixture auth-state path.');
+    await evaluate(
+      `(async()=>{const headers={'Authorization':'Basic '+btoa('owner:test-only-password-123'),'X-Vibe-Coder':'1','Content-Type':'application/json'};const status=await(await fetch('/api/status',{headers})).json(); const response=await fetch('/api/codex/auth/login',{method:'POST',headers,body:JSON.stringify({conversationId:status.conversations[0].id,method:'device'})}); if(!response.ok)throw Error(await response.text());})()`,
+    );
     await clickText('入力依頼');
     await until(
       `document.querySelector('.codex-login-details')?.textContent.includes('PRIVATE-CODE-234')`,
@@ -142,62 +170,9 @@ try {
     await screenshot('codex-login');
     await Bun.write(authState, JSON.stringify({ signedIn: true, finish: true }));
     await until(`!!document.querySelector('.request-history')`);
-    await evaluate(`document.querySelector('.request-history').open=true`);
-    await until(
-      `document.querySelector('.request-result')?.textContent.includes('認証の完了を確認しました')`,
-    );
     if (await evaluate(`document.body.textContent.includes('PRIVATE-CODE-234')`))
       throw new Error('Completed login code remained visible.');
     await clickText('ターミナル');
-    await until(`!!document.querySelector('.native-launch')`);
-    await clickText('終了した実行を表示');
-    await evaluate(`document.querySelector('.native-launch').open=true`);
-    await until(
-      `document.querySelector('.terminal-footer')?.textContent.includes('completed') && document.querySelector('.run-output')?.textContent.includes('resumed after login')`,
-    );
-  }
-  if (process.env.VIBE_CODER_TEST_NATIVE === '1') {
-    await setValue('textarea[name="prompt"]', 'hello');
-    await evaluate(`document.querySelector('form.form-card').requestSubmit()`);
-    await until(
-      `document.querySelector('.terminal-footer')?.textContent.includes('completed') && document.querySelector('.run-output')?.textContent.includes('native response')`,
-    );
-    if (await evaluate(`!!document.querySelector('.xterm')`))
-      throw new Error('Native run has a fabricated PTY.');
-    await until(`document.querySelector('.run-details')?.textContent.includes('native-thread')`);
-    if (
-      await evaluate(
-        `Array.from(document.querySelectorAll('button')).some(b => b.textContent.includes('終了した実行を表示'))`,
-      )
-    )
-      await clickText('終了した実行を表示');
-    await setValue('.run-details textarea[name="prompt"]', 'follow-up');
-    await evaluate(`document.querySelector('.run-details form').requestSubmit()`);
-    await until(
-      `document.querySelectorAll('.session-list button').length === 2 && document.querySelector('.terminal-footer')?.textContent.includes('completed')`,
-    );
-    await setValue('.native-launch textarea[name="prompt"]', 'wait');
-    await evaluate(`document.querySelector('.native-launch form').requestSubmit()`);
-    await until(
-      `document.querySelector('.run-details')?.textContent.includes('実行中の作業への追加指示')`,
-    );
-    await setValue('.run-details textarea[name="prompt"]', 'browser steering accepted');
-    await evaluate(`document.querySelector('.run-details form').requestSubmit()`);
-    await until(
-      `document.querySelector('.run-output')?.textContent.includes('browser steering accepted') && document.querySelector('.terminal-footer')?.textContent.includes('completed')`,
-    );
-    await evaluate(
-      `document.querySelector('.native-launch select[name="adapter"]').value = 'claude'`,
-    );
-    await setValue('.native-launch textarea[name="prompt"]', 'wait');
-    await evaluate(`document.querySelector('.native-launch form').requestSubmit()`);
-    await until(`document.querySelector('.run-details')?.textContent.includes('現在の処理を中断')`);
-    await setValue('.run-details textarea[name="prompt"]', 'browser claude redirect');
-    await evaluate(`document.querySelector('.run-details form').requestSubmit()`);
-    await until(
-      `document.querySelector('.run-output')?.textContent.includes('browser claude redirect') && document.querySelector('.terminal-footer')?.textContent.includes('completed')`,
-    );
-    await screenshot('native');
   }
   await clickText('ターミナルを開く');
   await until(`!!document.querySelector('.terminal-surface .xterm-helper-textarea')`);
@@ -253,6 +228,162 @@ try {
     { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
     sessionId,
   );
+
+  // Two real PTYs remain alive and mounted across decks, focus and maximization.
+  const firstRun = await evaluate(`document.querySelector('.shell-tile').dataset.runId`);
+  const firstTile = `.shell-tile[data-run-id="${firstRun}"]`;
+  const terminalCommand = async (selector: string, text: string) => {
+    await until(
+      `document.querySelector(${JSON.stringify(selector + ' .terminal-connection')})?.textContent === '接続済み'`,
+    );
+    await evaluate(
+      `document.querySelector(${JSON.stringify(selector + ' .xterm-helper-textarea')}).focus()`,
+    );
+    await command('Input.insertText', { text }, sessionId);
+    for (const type of ['keyDown', 'keyUp'])
+      await command(
+        'Input.dispatchKeyEvent',
+        { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+        sessionId,
+      );
+  };
+  await terminalCommand(firstTile, 'export DECK_PROOF=shared-shell-works');
+  await clickText('ターミナルを開く');
+  await until(`document.querySelectorAll('.shell-tile').length === 2`);
+  await evaluate(
+    `window.__firstTerminal=document.querySelector(${JSON.stringify(firstTile + ' .xterm')})`,
+  );
+  await screenshot('shell-grid');
+  await evaluate(`document.querySelector('button[aria-label="選択した端末を最大化"]').click()`);
+  await until(
+    `Array.from(document.querySelectorAll('.shell-tile')).filter(e=>e.getBoundingClientRect().width>0).length===1`,
+  );
+  await evaluate(`document.querySelector('button[aria-label="端末を並べて表示"]').click()`);
+  await evaluate(`document.querySelector('button[aria-label="デッキを追加"]').click()`);
+  await until(`!!document.querySelector('.deck-editor input')`);
+  await setValue('.deck-editor input', '検証デッキ');
+  await evaluate(`document.querySelector('.deck-editor').requestSubmit()`);
+  await until(
+    `Array.from(document.querySelectorAll('[role="tab"]')).some(e=>e.textContent.includes('検証デッキ'))`,
+  );
+  await evaluate(`document.querySelector('[role="tab"]').click()`);
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).getBoundingClientRect().width>0`,
+  );
+  await evaluate(
+    `(()=>{const el=document.querySelector(${JSON.stringify(firstTile + ' select[aria-label="端末の移動先デッキ"]')});el.value=el.options[1].value;el.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+  );
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).getBoundingClientRect().width===0`,
+  );
+  await evaluate(
+    `Array.from(document.querySelectorAll('[role="tab"]')).find(e=>e.textContent.includes('検証デッキ')).click()`,
+  );
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).getBoundingClientRect().width>0`,
+  );
+  if (
+    !(await evaluate(
+      `window.__firstTerminal===document.querySelector(${JSON.stringify(firstTile + ' .xterm')})`,
+    ))
+  )
+    throw new Error('Deck move remounted the terminal');
+  await terminalCommand(firstTile, 'printf "VALUE=%s\\n" "$DECK_PROOF"');
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).textContent.includes('VALUE=shared-shell-works')`,
+  );
+  await evaluate(
+    `document.querySelector(${JSON.stringify(firstTile + ' button[aria-label="端末の表示を閉じる"]')}).click()`,
+  );
+  await until(`!document.querySelector(${JSON.stringify(firstTile)})`);
+  await evaluate(`document.querySelector('.shell-archive').open=true`);
+  await clickText('表示を戻す');
+  await until(`!!document.querySelector(${JSON.stringify(firstTile + ' .xterm')})`);
+  await terminalCommand(firstTile, 'printf "RESTORED=%s\\n" "$DECK_PROOF"');
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).textContent.includes('RESTORED=shared-shell-works')`,
+  );
+  await clickText('コマンドから開く');
+  await setValue('.shell-launch input[name="command"]', 'cat');
+  await setValue('.shell-launch input[name="title"]', 'JSON pipe');
+  await evaluate(
+    `(()=>{const el=document.querySelector('.shell-launch select[name="mode"]');el.value='pipe';el.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.shell-launch').requestSubmit();})()`,
+  );
+  await until(`!!document.querySelector('.pipe-input textarea:not(:disabled)')`);
+  await setValue('.pipe-input textarea', '{"text":"日本語 pipe"}');
+  await evaluate(`document.querySelector('.pipe-input').requestSubmit()`);
+  await until(
+    `document.querySelector('.pipe-view .run-output').textContent.includes('日本語 pipe')`,
+  );
+  await clickText('入力を終了（EOF）');
+  await until(
+    `Array.from(document.querySelectorAll('.shell-tile-footer')).some(e=>e.textContent.includes('終了コード 0'))`,
+  );
+  await screenshot('shell-deck-pipe');
+  await command('Page.reload', {}, sessionId);
+  if (!basicAuth) {
+    await until(`!!document.querySelector('input[name="username"]')`);
+    await setValue('input[name="username"]', 'owner');
+    await setValue('input[name="password"]', 'test-only-password-123');
+    await evaluate(`document.querySelector('form').requestSubmit()`);
+  }
+  await clickText('ターミナル');
+  await until(
+    `document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes('検証デッキ')`,
+  );
+  await until(`!!document.querySelector(${JSON.stringify(firstTile + ' .xterm-helper-textarea')})`);
+  await terminalCommand(firstTile, 'printf "RELOADED=%s\\n" "$DECK_PROOF"');
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).textContent.includes('RELOADED=shared-shell-works')`,
+  );
+  await command(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    sessionId,
+  );
+  await until(`document.documentElement.scrollWidth===390`);
+  await until(
+    `Array.from(document.querySelectorAll('.shell-tile')).filter(e=>e.getBoundingClientRect().width>0).length===1`,
+  );
+  await screenshot('shell-mobile');
+  await command(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false },
+    sessionId,
+  );
+
+  // Human/agent ownership changes affect the same PTY, and deleting a deck moves it.
+  await evaluate(
+    `Array.from(document.querySelector(${JSON.stringify(firstTile)}).querySelectorAll('button')).find(e=>e.textContent.includes('AIに返す')).click()`,
+  );
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).textContent.includes('AIが操作中')`,
+  );
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile + ' button[aria-label="貼り付け"]')}).disabled`,
+  );
+  await evaluate(
+    `Array.from(document.querySelector(${JSON.stringify(firstTile)}).querySelectorAll('button')).find(e=>e.textContent.includes('手動操作')).click()`,
+  );
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).textContent.includes('あなたが操作中')`,
+  );
+  await terminalCommand(firstTile, 'printf "HANDED_BACK=%s\\n" "$DECK_PROOF"');
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).textContent.includes('HANDED_BACK=shared-shell-works')`,
+  );
+  await evaluate(`document.querySelector('button[aria-label="デッキを編集"]').click()`);
+  await evaluate(`document.querySelector('button[aria-label="デッキを左へ"]').click()`);
+  await until(`document.querySelector('[role="tab"]')?.textContent.includes('検証デッキ')`);
+  await clickText('デッキを削除・端末は移動');
+  await until(`document.querySelectorAll('[role="tab"]').length===1`);
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).getBoundingClientRect().width>0`,
+  );
+  await terminalCommand(firstTile, 'printf "DELETED_DECK=%s\\n" "$DECK_PROOF"');
+  await until(
+    `document.querySelector(${JSON.stringify(firstTile)}).textContent.includes('DELETED_DECK=shared-shell-works')`,
+  );
   await clickText('予定');
   await clickText('予定を追加');
   await setValue('input[name="title"]', 'ブラウザから登録した予定');
@@ -275,7 +406,9 @@ try {
   await until(`!!document.querySelector('.file-editor textarea')`);
   await setValue('.file-editor textarea', originalFile + '\nBROWSER_EDIT_PROOF\n');
   await clickText('ファイルを保存');
-  await until(`document.querySelector('.file-editor button.primary')?.disabled === true`);
+  await until(
+    `(()=>{const button=document.querySelector('.file-editor button.primary');return button?.disabled && button.textContent==='ファイルを保存';})()`,
+  );
   await clickText('変更を確認');
   await until(`!!document.querySelector('.change-list button')`);
   await clickText('AGENT.md');
@@ -464,6 +597,7 @@ try {
         'chat creation',
         'terminal creation with immediate human input',
         'terminal paste, font sizing, reconnect and mobile controls',
+        'deck grid, maximization, move without remount, hidden PTY, writable JSON pipe and EOF, reload persistence and mobile switching',
         'draft retention, reconnect status and rapid file selection',
         'schedule save',
         'memory save',
@@ -478,9 +612,7 @@ try {
               'Codex login card, private code removal, queued continuation and parent subscription selection',
             ]
           : []),
-        ...(process.env.VIBE_CODER_TEST_NATIVE === '1'
-          ? ['native output, session continuation, Codex steering and Claude interruption']
-          : []),
+
         ...(process.env.VIBE_CODER_TEST_INSTALL === '1'
           ? ['real npm installation and MCP discovery from WebUI']
           : []),

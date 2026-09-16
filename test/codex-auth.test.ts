@@ -21,15 +21,12 @@ const useAuthFixture = async (r: Awaited<ReturnType<typeof fixture>>) => {
   return state;
 };
 
-test('Codex sign-in suspends only the native run, keeps private auth out of history, and resumes the original turn once', async () => {
+test('Codex sign-in runs independently, keeps private auth out of history, and allows concurrent parent work', async () => {
   let step = 0;
   const r = await fixture({
     async call() {
       return step++ === 0
-        ? calls(
-            ['native_start', { adapter: 'codex', prompt: 'original work' }],
-            ['file_read', { path: 'AGENT.md' }],
-          )
+        ? calls(['codex_login', { method: 'device' }], ['file_read', { path: 'AGENT.md' }])
         : answer;
     },
   });
@@ -43,8 +40,6 @@ test('Codex sign-in suspends only the native run, keeps private auth out of hist
         .history(r.id)
         .some((m) => m.body.role === 'tool' && m.body.content.includes('sha256')),
     ).toBe(true);
-    const run = r.store.snapshot(r.id).runs.find((r) => r.kind === 'native')!;
-    expect(run.state).toBe('running');
     const card = r.human.get(r.codex.status().requestId!);
     expect(r.desktop.status().owner).toBe('human');
     expect(() =>
@@ -80,20 +75,17 @@ test('Codex sign-in suspends only the native run, keeps private auth out of hist
     ])
       expect(visible).not.toContain(value);
     await Bun.write(state, JSON.stringify({ signedIn: true, finish: true }));
-    await eventually(() => r.runs.get(run.id).state === 'completed');
+    await eventually(() => r.codex.status().state === 'signed_in');
     expect(r.human.get(card.id)).toMatchObject({
       state: 'resolved',
       result: { verification: 'verified' },
     });
     expect(r.codex.userStatus()).toMatchObject({ ready: true, state: 'signed_in', login: null });
-    expect(r.runs.get(run.id).output).toContain('resumed after login');
     const log = (await Bun.file(`${state}.calls`).text())
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line));
-    expect(
-      log.filter((row) => row.method === 'turn/start').map((row) => row.input[0].text),
-    ).toEqual(['original work']);
+    expect(log.filter((row) => row.method === 'turn/start')).toEqual([]);
     expect(r.desktop.status().owner).toBe('human');
     expect(JSON.stringify(r.store.snapshot(r.id))).not.toContain('private-account');
   } finally {
@@ -141,10 +133,13 @@ test('failed Codex login cannot unblock a queued run and a missing CLI is report
   try {
     r.agent.pause(r.id, true);
     const state = await useAuthFixture(r);
-    const run = r.native.start(r.id, { adapter: 'codex', prompt: 'must not start' });
+    const pending = r.codex.ensure(r.id, new AbortController().signal).then(
+      () => false,
+      () => true,
+    );
     await eventually(() => r.codex.status().state === 'waiting');
     await Bun.write(state, JSON.stringify({ finish: true, success: false }));
-    await eventually(() => r.runs.get(run.id).state === 'failed');
+    expect(await pending).toBe(true);
     expect(await Bun.file(`${state}.calls`).text()).not.toContain('turn/start');
     expect(JSON.stringify(r.store.snapshot(r.id))).not.toContain('private-error-marker');
     r.codex.command.splice(0, r.codex.command.length, '/missing-codex-test-binary');

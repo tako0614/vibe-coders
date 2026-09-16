@@ -61,7 +61,7 @@ try {
   r.store.changes.on('change', answer);
   r.agent.submit(
     r.id,
-    'This is an end-to-end test in a temporary repository. Use only file_read, file_write, memory_write, human_request and agent_wait. Do not invoke native_start or shell_exec. Read AGENT.md; create provider-proof.txt containing exactly PROVIDER_E2E_OK and a newline; read it back; save a memory that the test color is green; ask one nonsecret text question with human_request and then continue inspecting the file while waiting. You will receive the answer automatically. After receiving it, report the created file and color. Do not access other directories, use external services, or delegate.',
+    'This is an end-to-end test in a temporary repository. Use only file_read, file_write, memory_write, human_request and agent_wait. Do not invoke shell_exec. Read AGENT.md; create provider-proof.txt containing exactly PROVIDER_E2E_OK and a newline; read it back; save a memory that the test color is green; ask one nonsecret text question with human_request and then continue inspecting the file while waiting. You will receive the answer automatically. After receiving it, report the created file and color. Do not access other directories, use external services, or delegate.',
     crypto.randomUUID(),
   );
   await eventually(

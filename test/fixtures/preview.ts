@@ -8,11 +8,6 @@ const runtime = await fixture({
     throw new Error('Browser fixture has no model connection.');
   },
 });
-if (process.env.VIBE_CODER_TEST_NATIVE === '1') {
-  const program = [process.execPath, fileURLToPath(new URL('./native-cli.ts', import.meta.url))];
-  Object.assign(runtime.native.executables, { codex: program, claude: program });
-  runtime.codex.command.splice(0, runtime.codex.command.length, ...program);
-}
 if (process.env.VIBE_CODER_TEST_AUTH === '1') {
   const state = process.env.VIBE_CODER_TEST_AUTH_STATE || `${runtime.root}/auth-state.json`;
   await Bun.write(state, '{}');
@@ -22,7 +17,6 @@ if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     state,
   ];
   runtime.codex.command.splice(0, runtime.codex.command.length, ...program);
-  runtime.native.executables.codex = runtime.codex.command;
 }
 const port = Number(process.env.VIBE_CODER_TEST_PORT || 3100);
 const { app, websocket } = createHttp(runtime, {
@@ -31,7 +25,7 @@ const { app, websocket } = createHttp(runtime, {
 const closeDesktop =
   process.env.VIBE_CODER_TEST_DESKTOP === '1' ? await previewDesktop(runtime) : undefined;
 const server = Bun.serve({
-  hostname: '127.0.0.1',
+  hostname: process.env.VIBE_CODER_TEST_HOST || '127.0.0.1',
   port,
   fetch: app.fetch,
   websocket,

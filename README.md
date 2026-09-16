@@ -8,7 +8,7 @@
 
 Bun 1.3.14以上が必要です。初期の検証対象はLinuxです。
 
-配布版は `npm install -g vibe-coders@0.1.8` で導入できます。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
+npm公開済み版は `npm install -g vibe-coders@0.1.8`、このソースの0.2.0は配布tarballから導入できます（npm公開は認証待ち）。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
 
 ```sh
 git clone https://github.com/tako0614/vibe-coders.git
@@ -42,7 +42,7 @@ bun run start --home /path/to/agent-repo
 - MCPで使いたい機能を親へ依頼し、実行環境の確認・不足ソフトの導入・接続・動作確認を進める
 - 単発・周期・イベント条件による予定、作成・編集・削除・即時実行、`atom.toml` の共有ルーチン
 - Atom Memoryの保存・検索・参照・修正、推論ごとの自動取得と成功後の利用ack
-- Codex App Server / Claude Codeのネイティブ連携、構造化された終了状態と再開ID
+- デッキごとの複数端末、グリッド・最大化・モバイル切り替え、Codex / Claudeを含む任意CLIの共通shell実行
 - **親エージェントをCodexのサブスク枠で実行**。ChatGPTログイン、モデル一覧、ツール呼び出し、画像入力、暗号化された推論コンテキストの継続、利用枠エラーの表示
 - SearXNG / Brave Search、PDFのテキスト読取、画像・履歴の保存期間設定
 - Linux X11またはVNCによる画面取得・クリック・キー・入力・スクロール・ドラッグ、同じVNCのWeb操作
@@ -98,6 +98,6 @@ bun run db:generate    # Drizzleスキーマ変更時にmigrationを生成
 
 DBのmigrationはバックエンド起動時に適用します。依存は `bun.lock` に固定しています。Atom Memoryはnpm公開済みの0.7.0を使い、SQLiteドライバのimportだけをBun向けに変更したパッチを管理しています。
 
-0.1.8では会話の自動要約、ファイルの編集・差分・復元、下書き保存、子への追加指示、npmからのMCP直接導入とフォーム・OAuth対応を追加しました。[検証記録](docs/debugging-0.1.8.md) を参照してください。
+0.2.0ではshellの入口を共通化し、DeckIDE型のデッキ・複数端末・最大化・手動引き継ぎを追加しました。専用native子実行を廃止し、PTYと継続的な標準入出力を同じ実行管理で扱います。[仕様と移行](docs/shell-workspace.md)・[検証記録](docs/debugging-0.2.0.md) を参照してください。0.1.8の会話要約・ファイル編集/復元・下書き・MCP導入は継続します。
 
 0.1.7の端末・デスクトップ改善は [端末の遅延と自動デスクトップ](docs/debugging-0.1.7.md)。0.1.6の修正と検証範囲は [動作修正と画面整理](docs/debugging-0.1.6.md)。設計全体は [plan.md](plan.md)、実装範囲・実機検証・外部条件待ちは [実装状況](docs/implementation.md)、配布方法は [配布・運用](docs/distribution.md) に記録しています。Codexサブスクによる親のファイル操作・記憶・人間入力と、親がMCPを登録して実Chromeを読むところまで確認しています。OpenAI互換APIの実接続、Claudeの再ログイン、各OSの実機検証などは残っています。

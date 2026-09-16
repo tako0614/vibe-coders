@@ -9,10 +9,12 @@ import { eq, inArray } from 'drizzle-orm';
 import { runs } from './db/schema';
 import { Store } from './store';
 import { Vault } from './config';
+import { shellSchema, WORKSPACE_RUN_LIMIT } from '../shared/shell';
 
 type Live = {
   kill: () => void;
   write?: (text: string) => void;
+  endInput?: () => void;
   resize?: (cols: number, rows: number) => void;
   screen?: HeadlessTerminal;
   flushed?: Promise<void>;
@@ -26,6 +28,9 @@ export function shellEnvironment() {
   const env: Record<string, string> = {};
   for (const key of [
     'HOME',
+    'CODEX_HOME',
+    'CLAUDE_CONFIG_DIR',
+    'XDG_CONFIG_HOME',
     'PATH',
     'SHELL',
     'USER',
@@ -55,6 +60,8 @@ export function shellEnvironment() {
 export class RunService {
   readonly output = new EventEmitter();
   private live = new Map<string, Live>();
+  // Human-controlled output stays private, but remains readable in this server session after exit.
+  private endedOutput = new Map<string, { output: string; offset: number }>();
   constructor(
     readonly store: Store,
     readonly home: string,
@@ -67,7 +74,7 @@ export class RunService {
   }
   private create(
     conversationId: string,
-    kind: 'shell' | 'terminal' | 'mcp' | 'native',
+    kind: 'shell' | 'terminal' | 'mcp',
     title: string,
     cwd?: string,
   ) {
@@ -132,6 +139,11 @@ export class RunService {
     clearTimeout(live.timer);
     this.flush(id);
     live.screen?.dispose();
+    if (this.get(id).owner === 'human') {
+      this.endedOutput.set(id, { output: live.output, offset: live.offset });
+      if (this.endedOutput.size > 32)
+        this.endedOutput.delete(this.endedOutput.keys().next().value!);
+    }
     this.live.delete(id);
     const row = this.get(id);
     this.store.db.transaction(() => {
@@ -154,6 +166,50 @@ export class RunService {
     });
     this.store.notify();
   }
+  start(conversationId: string, value: unknown, owner: 'human' | 'agent' = 'agent') {
+    const spec = shellSchema.parse(value),
+      workspace = this.store.workspace(conversationId);
+    if (spec.deckId && !workspace.decks.some((d) => d.id === spec.deckId))
+      throw new Error('Deck not found.');
+    if (spec.deckId && Object.keys(workspace.placements).length >= WORKSPACE_RUN_LIMIT)
+      throw new Error('Workspace run limit reached. Start a new conversation.');
+    const shell =
+      process.platform === 'win32'
+        ? process.env.ComSpec || 'cmd.exe'
+        : process.env.SHELL || '/bin/bash';
+    const run =
+      spec.mode === 'pty'
+        ? this.terminal(
+            conversationId,
+            spec.command
+              ? [
+                  shell,
+                  ...(process.platform === 'win32' ? ['/d', '/s', '/c'] : ['-lc']),
+                  spec.command,
+                ]
+              : undefined,
+            spec.cwd,
+          )
+        : this.shell(conversationId, spec.command!, spec.cwd);
+    if (spec.title) this.rename(run.id, spec.title);
+    if (spec.deckId)
+      this.store.updateWorkspace(conversationId, {
+        ...workspace,
+        placements: { ...workspace.placements, [run.id]: spec.deckId },
+      });
+    return owner === 'human' ? this.handoff(run.id, owner) : this.get(run.id);
+  }
+  rename(id: string, title: string) {
+    this.get(id);
+    if (!title.trim() || title.length > 120) throw new Error('Invalid run title.');
+    this.store.db
+      .update(runs)
+      .set({ title: this.vault.redact(title.trim()) })
+      .where(eq(runs.id, id))
+      .run();
+    this.store.notify();
+    return this.get(id);
+  }
   shell(conversationId: string, command: string, cwd?: string) {
     const row = this.create(conversationId, 'shell', command, cwd);
     let child: ChildProcess;
@@ -167,7 +223,7 @@ export class RunService {
           cwd: row.cwd,
           env: shellEnvironment(),
           detached: process.platform !== 'win32',
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['pipe', 'pipe', 'pipe'],
         },
       );
     } catch {
@@ -179,6 +235,23 @@ export class RunService {
       output: '',
       offset: 0,
       kill: () => this.killGroup(row.id, child.pid, () => child.kill('SIGTERM')),
+      write: (text) => {
+        if (!child.stdin?.writable || child.stdin.destroyed || child.stdin.writableEnded)
+          throw new Error('Process input is closed.');
+        if (child.stdin.writableLength + Buffer.byteLength(text) > 512 * 1024)
+          throw new Error('Process input is busy. Wait for output before writing again.');
+        child.stdin.write(text);
+      },
+      endInput: () => {
+        child.stdin?.end();
+      },
+    });
+    child.stdin!.on('error', () => {
+      const live = this.live.get(row.id);
+      if (live) {
+        live.write = undefined;
+        live.endInput = undefined;
+      }
     });
     for (const stream of [child.stdout, child.stderr]) {
       const decoder = new StringDecoder('utf8');
@@ -198,6 +271,28 @@ export class RunService {
     const decoder = new StringDecoder('utf8');
     const screen = new HeadlessTerminal({ cols, rows, allowProposedApi: true, scrollback: 2000 });
     this.live.set(row.id, { kill() {}, output: '', offset: 0, screen });
+    const respond = (text: string) => {
+      const live = this.live.get(row.id);
+      if (live?.write && this.get(row.id).owner === 'agent') {
+        try {
+          live.write(text);
+        } catch {
+          /* Process may have exited after its query. */
+        }
+      }
+    };
+    // A TUI must receive terminal reports even when no browser is attached.
+    screen.onData(respond);
+    for (const [code, color] of [
+      [10, 'e6e6/ebeb/f4f4'],
+      [11, '2020/2929/3838'],
+      [12, '9191/a9a9/ffff'],
+    ] as const)
+      screen.parser.registerOscHandler(code, (data) => {
+        if (data !== '?') return false;
+        respond(`\x1b]${code};rgb:${color}\x07`);
+        return true;
+      });
     try {
       if (process.platform === 'win32') {
         const pty = createRequire(import.meta.url)('node-pty') as typeof import('node-pty');
@@ -260,7 +355,7 @@ export class RunService {
       emit: (text: string) => void,
       update: (metadata: Record<string, unknown>) => void,
     ) => Promise<Record<string, unknown>>,
-    kind: 'mcp' | 'native' = 'mcp',
+    kind: 'mcp' = 'mcp',
     cwd?: string,
   ) {
     const row = this.create(conversationId, kind, title, cwd),
@@ -307,8 +402,9 @@ export class RunService {
     if (asAgent && row.owner === 'human')
       throw new Error('This terminal is handed to the user; observation is suspended.');
     const live = this.live.get(id),
-      output = live?.output ?? row.output,
-      base = live?.offset ?? row.outputOffset;
+      retained = this.endedOutput.get(id),
+      output = live?.output ?? retained?.output ?? row.output,
+      base = live?.offset ?? retained?.offset ?? row.outputOffset;
     const start = Math.max(offset, base),
       text = output.slice(start - base, start - base + limit);
     return {
@@ -323,15 +419,10 @@ export class RunService {
         pty: row.kind === 'terminal',
         read: true,
         stop: row.state === 'running',
-        immediateInput: row.kind === 'terminal' && !!live?.write,
-        nextTurnViaResume: row.kind === 'native',
-        nativeInput:
-          row.kind === 'native' && row.state === 'running' ? row.result?.inputMode || false : false,
+        immediateInput: row.state === 'running' && !!live?.write,
+        endInput: row.state === 'running' && !!live?.endInput,
       },
-      turnState:
-        row.kind === 'native' && row.state !== 'interrupted'
-          ? row.result?.turnState || 'unknown'
-          : 'unknown',
+      turnState: 'unknown',
     };
   }
   async screen(id: string) {
@@ -360,8 +451,44 @@ export class RunService {
       live = this.live.get(id);
     if (row.epoch !== epoch || row.owner !== actor)
       throw new Error('Terminal ownership changed. Observe it again.');
-    if (!live?.write) throw new Error('No live writable PTY.');
+    if (row.state !== 'running' || !live?.write) throw new Error('No live writable process.');
     live.write(text);
+  }
+  endInput(id: string, actor: 'human' | 'agent', epoch: number) {
+    this.store.assertEnabled();
+    const row = this.get(id),
+      live = this.live.get(id);
+    if (row.owner !== actor || row.epoch !== epoch) throw new Error('Process ownership changed.');
+    if (row.state !== 'running' || !live?.endInput) throw new Error('No open pipe input.');
+    live.endInput();
+    live.endInput = undefined;
+    live.write = undefined;
+    this.store.notify();
+  }
+  wait(id: string, offset = 0, timeoutMs = 10000, asAgent = true) {
+    return new Promise<ReturnType<RunService['read']>>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.output.off(id, check);
+        this.store.changes.off('change', check);
+      };
+      const check = (expired = false) => {
+        try {
+          const value = this.read(id, offset, 12000, asAgent);
+          if (expired || value.text || !['running', 'stopping'].includes(value.state)) {
+            cleanup();
+            resolve(value);
+          }
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      };
+      const timer = setTimeout(() => check(true), Math.min(20000, Math.max(0, timeoutMs)));
+      this.output.on(id, check);
+      this.store.changes.on('change', check);
+      check();
+    });
   }
   resize(id: string, cols: number, rows: number, actor: 'human' | 'agent' = 'human') {
     this.store.assertEnabled();
@@ -374,6 +501,7 @@ export class RunService {
   handoff(id: string, owner: 'human' | 'agent') {
     const row = this.get(id),
       live = this.live.get(id);
+    if (owner === 'agent' && row.owner === 'human') this.endedOutput.delete(id);
     if (owner === 'agent' && row.owner === 'human' && live) {
       live.offset += live.output.length;
       live.output = '\r\n[Human-controlled interval omitted from the transcript]\r\n';
@@ -420,6 +548,7 @@ export class RunService {
         .run();
     }
     this.live.clear();
+    this.endedOutput.clear();
     this.output.removeAllListeners();
   }
   recover() {

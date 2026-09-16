@@ -1,6 +1,6 @@
 # 実装状況
 
-2026-09-15。Vibe CodersはHono / Bun / React / SQLite / Drizzleで実装しています。
+2026-09-16。Vibe CodersはHono / Bun / React / SQLite / Drizzleで実装しています。
 
 ## Atomはどれを使っているか
 
@@ -18,7 +18,7 @@
 | MCP            | stdio / Streamable HTTP、動的discovery、ツール一覧変更、文字・単一/複数選択・整数・数値・真偽値フォーム、初期値・表示名・入力制約、URL elicitation                                                            |
 | MCP OAuth      | SDKのdiscovery・client登録、事前登録クライアントID/シークレット・スコープ、PKCE・トークン保存・更新。期限と接続版に結び付く一回限りのstate、コールバック後の接続再開                                                      |
 | ファイル・実行 | WebUIの差分・編集・復元、範囲読取・glob・内容照合つき編集、shell、継続PTY、Unicode/TUI現在画面、手動操作への引き継ぎ                                                                                |
-| 子エージェント | Codex App Serverのthread/turn・steerとresume、Claude Codeのstream-json・interruptとsession resume。親を止めず実行し、構造化された成否と再開IDを保存                                          |
+| CLI実行 | 共通shellのPTY / pipe、継続入力・EOF・待機・停止、デッキ・グリッド・最大化・モバイル切り替え。Codex / Claudeも通常のCLIとして起動 |
 | MCP導入        | AI不要のnpm導入・バージョン固定・discovery、認証入力後の再接続。汎用の導入依頼、環境・実行ファイルの確認、親からの追加・更新・再接続・切断・削除。接続は独立runで行い、実ツールを次の推論へ反映。Chromeは通常アプリとMCPを導入する利用例   |
 | Codex親モデル  | サブスク認証によるResponses接続。親ループ・MCP・予定・Atomは本アプリが所有。ツールIDとストリーム終端の照合、暗号化コンテキスト継続、画像入力、401時の一度の更新、429で停止 |
 | Codex認証      | App ServerによるChatGPTコード／ブラウザ認証、ユーザー専用のURL・コード表示、成功通知とアカウント確認、親・子の認証待ちと元の作業の再開、取消・全停止・再起動時の処理       |
@@ -34,7 +34,7 @@
 
 外部プロセスやネットワークの副作用にexactly-onceを保証しません。資格情報と暗号鍵は同じOSユーザーがアクセス可能です。任意shellから秘密を隔離するサンドボックスとしては扱いません。管理下の手動操作区間はAIの観測を停止しますが、他のOSプロセスによる観測を制御するものではありません。
 
-0.1.8の会話要約・ファイル編集/復元・下書き保存・子への追加指示・MCP導入改善は [検証記録](debugging-0.1.8.md)。0.1.7の端末・自動デスクトップ改善は [検証記録](debugging-0.1.7.md)。0.1.6での不具合修正と実画面の検証範囲は [動作修正と画面整理](debugging-0.1.6.md) に記録しています。現在の実アカウントは推論時に429（利用枠不足）を返したため、以下の実Codexでの完了実績は先行版で確認したものです。
+0.2.0のshell共通化とデッキは [仕様](shell-workspace.md)・[検証記録](debugging-0.2.0.md)。0.1.8の会話要約・ファイル編集/復元・下書き保存・子への追加指示・MCP導入改善は [検証記録](debugging-0.1.8.md)。0.1.7の端末・自動デスクトップ改善は [検証記録](debugging-0.1.7.md)。0.1.6での不具合修正と実画面の検証範囲は [動作修正と画面整理](debugging-0.1.6.md) に記録しています。0.1.8検証時の実アカウントは推論時に429（利用枠不足）を返したため、以下の実Codexでの完了実績は先行版で確認したものです。
 
 ## この環境で確認したこと
 
@@ -57,8 +57,8 @@
 - 実際のChrome＋chrome-devtools-mcpで29ツール取得、タブ一覧、手動操作時の切断と再接続。検証専用のChromeを使用し、普段のプロファイルを変更していません。
 - ログイン・会話・PTY入力・予定保存・記憶保存・ファイル読取・接続設定・秘密入力・390px幅のブラウザ操作。
 - WebUIのnoVNCからパスワード付きの実デスクトップへ接続し、800×600の表示と手動操作からAIへの返却を確認。
-- **実際のログイン済みCodex**によるファイル作成と読戻し。native turnがcompletedになったこととファイル内容を照合。
-- ネイティブ実行のWebUIは通常の出力・状態・再開IDを表示し、PTYを作りません。CLI fixtureで画面からCodexの実行中steer、Claudeのinterruptと同じセッションでの続行を確認。親も native_input を使えます。端末のキー入力・実行中の追加指示・終了後の次ターンを区別して表示します。
+- 過去のnative実装では実際のCodexによるファイル作成・読戻しを確認。0.2.0ではこの専用経路を削除しており、共通shell経由での実AIの完走実績として扱いません。
+- 0.2.0のshellはプロセスの出力・終了コードを返します。作業完了、セッション再開、追加指示の意味はCLIと操作者が扱い、専用native状態へ変換しません。
 - PDF fixtureの実Poppler読取、検索HTTP fixture、期限削除、認証拒否・一時障害・再検証の回帰試験。
 
 ## 外部条件が足りず完了していない検証・公開
@@ -75,8 +75,7 @@ MCP標準の文字列選択配列まで対応します。標準外の入れ子�
 
 ```sh
 bun run check
-bun scripts/check-native.ts codex   # 実モデルを使う
-bun scripts/check-native.ts claude  # Claudeへの再ログイン後
+bun test test/shell-workspace.test.ts # 実PTY・pipe・デッキ・入力と終了
 bun scripts/check-provider.ts --codex # Codexサブスクで親を検証（実モデル）
 bun scripts/check-provider.ts      # 設定済みのOpenAI互換APIを検証
 ```
@@ -91,7 +90,7 @@ VIBE_CODER_CDP=http://127.0.0.1:9223 bun scripts/check-codex-mcp.ts # 実Codex�
 
 Codex認証UIのfixture検証はpreviewとbrowser-checkの両方に `VIBE_CODER_TEST_AUTH=1` と同じ一時ファイルの `VIBE_CODER_TEST_AUTH_STATE` を指定します。
 
-ネイティブUIのfixture検証はpreviewとbrowser-checkの両方に `VIBE_CODER_TEST_NATIVE=1` を、実VNCのUI検証は両方に `VIBE_CODER_TEST_DESKTOP=1` を指定します。
+実VNCのUI検証はpreviewとbrowser-checkの両方に `VIBE_CODER_TEST_DESKTOP=1` を指定します。
 
 外部モデルへ送らないUI fixtureの認証は `owner / test-only-password-123`。実運用の設定には使用しません。一時Homeはpreview終了時に削除し、スクリーンショットは `/tmp/vibe-coder-browser/` へ保存します。
 

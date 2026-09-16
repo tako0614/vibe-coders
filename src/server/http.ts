@@ -18,7 +18,7 @@ import {
 } from '../shared/contracts';
 import { extractPdf } from './content';
 import { prune } from './retention';
-import { nativeSchema } from './native';
+import { shellSchema } from '../shared/shell';
 import { requests } from './db/schema';
 import type { Runtime } from './runtime';
 import type { WSContext } from 'hono/ws';
@@ -299,27 +299,28 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
   app.post('/api/runs', async (c) => {
     await r.changes.ready;
     const body = z
-      .object({
-        conversationId: z.string(),
-        kind: z.enum(['shell', 'terminal']),
-        command: z.string().max(32000).optional(),
-      })
+      .object({ conversationId: z.string(), spec: shellSchema })
+      .strict()
       .parse(await c.req.json());
-    return c.json(
-      body.kind === 'terminal'
-        ? r.runs.handoff(r.runs.terminal(body.conversationId).id, 'human')
-        : r.runs.shell(body.conversationId, z.string().min(1).parse(body.command)),
-      201,
-    );
+    return c.json(r.runs.start(body.conversationId, body.spec, 'human'), 201);
   });
-  app.post('/api/native/:id/input', async (c) =>
-    c.json(await r.native.input(c.req.param('id'), await c.req.json())),
+  app.put('/api/conversations/:id/workspace', async (c) =>
+    c.json(r.store.updateWorkspace(c.req.param('id'), await c.req.json())),
   );
-  app.post('/api/native', async (c) => {
-    const body = z
-      .object({ conversationId: z.string(), spec: nativeSchema })
+  app.patch('/api/runs/:id', async (c) => {
+    const { title } = z
+      .object({ title: z.string().trim().min(1).max(120) })
+      .strict()
       .parse(await c.req.json());
-    return c.json(r.native.start(body.conversationId, body.spec), 202);
+    return c.json(r.runs.rename(c.req.param('id'), title));
+  });
+  app.post('/api/runs/:id/end-input', async (c) => {
+    const { epoch } = z
+      .object({ epoch: z.number().int() })
+      .strict()
+      .parse(await c.req.json());
+    r.runs.endInput(c.req.param('id'), 'human', epoch);
+    return c.json({ closed: true });
   });
   app.post('/api/runs/:id/stop', (c) => c.json(r.runs.stop(c.req.param('id'))));
   app.post('/api/runs/:id/handoff', async (c) => {

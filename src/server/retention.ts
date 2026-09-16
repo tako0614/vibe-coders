@@ -87,29 +87,31 @@ export function prune(store: Store, config: Config, now = Date.now()) {
       .where(
         or(
           like(state.key, 'context:%'),
+          like(state.key, 'terminal-workspace:%'),
           like(state.key, 'native-input:%'),
           like(state.key, 'mcp-install:%'),
         ),
       )
       .all()) {
-      const exists = row.key.startsWith('context:')
-        ? store.db
-            .select({ id: conversations.id })
-            .from(conversations)
-            .where(eq(conversations.id, row.key.slice(8)))
-            .get()
-        : store.db
-            .select({ id: runs.id })
-            .from(runs)
-            .where(
-              eq(
-                runs.id,
-                row.key.startsWith('native-input:')
-                  ? row.key.split(':')[1]
-                  : (row.value as { runId: string }).runId,
-              ),
-            )
-            .get();
+      const exists =
+        row.key.startsWith('context:') || row.key.startsWith('terminal-workspace:')
+          ? store.db
+              .select({ id: conversations.id })
+              .from(conversations)
+              .where(eq(conversations.id, row.key.slice(row.key.indexOf(':') + 1)))
+              .get()
+          : store.db
+              .select({ id: runs.id })
+              .from(runs)
+              .where(
+                eq(
+                  runs.id,
+                  row.key.startsWith('native-input:')
+                    ? row.key.split(':')[1]
+                    : (row.value as { runId: string }).runId,
+                ),
+              )
+              .get();
       if (!exists) store.db.delete(state).where(eq(state.key, row.key)).run();
     }
     store.db

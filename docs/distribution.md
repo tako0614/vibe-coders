@@ -1,6 +1,6 @@
 # 配布・運用
 
-2026-09-15。**Vibe Coders** の0.1.8をnpmへ公開しました。長い会話の自動要約、ファイルの編集・差分・復元、下書き保存、子への追加指示、npmからのMCP導入とフォーム・OAuthを改善しました。端末とLinux自動デスクトップは前版の改善を含みます。外部サーバーへの配備は、配備先が未指定のため未実施です。
+2026-09-16。**0.2.0を実装しました。npm公開は認証待ち（401）で、公開済み版は0.1.8です。** 0.2.0ではデッキ・複数端末と共通shellを追加し、専用native子実行を廃止しました。[仕様と移行](shell-workspace.md)を参照してください。以下のnpmインストール例は公開済み版です。
 
 ```sh
 npm install -g vibe-coders@0.1.8
@@ -26,7 +26,7 @@ npm pack
 ローカルtarballの導入後は以下の手順です。
 
 ```sh
-npm install -g /path/to/vibe-coders-0.1.8.tgz
+npm install -g /path/to/vibe-coders-0.2.0.tgz
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init

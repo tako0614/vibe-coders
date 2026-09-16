@@ -17,7 +17,6 @@ import { Desktop } from './desktop';
 import { Agent } from './agent';
 import { verifyProvider } from './credentials';
 import { prune } from './retention';
-import { NativeService } from './native';
 import { CodexAuth } from './codex-auth';
 import { CodexModel } from './codex-model';
 
@@ -75,13 +74,6 @@ export function createRuntime(options: {
     options.codex?.command,
     options.codex?.credentialFile,
   );
-  const native = new NativeService(
-    store,
-    runs,
-    human,
-    { codex: codex.command, claude: ['claude'] },
-    codex,
-  );
   const apiModel = new ChatModel(config, vault),
     subscriptionModel = new CodexModel(config, codex, options.codex?.fetch);
   const model: ModelAdapter = options.model || {
@@ -109,11 +101,9 @@ export function createRuntime(options: {
     scheduler,
     mcp,
     desktop,
-    native,
     codex,
   );
   agent.beforeWork = () => changes.ready;
-  native.beforeWork = () => changes.ready;
   runs.recover();
   human.recover();
   codex.recover();
@@ -193,7 +183,6 @@ export function createRuntime(options: {
     mcpInstaller,
     desktop,
     agent,
-    native,
     codex,
     model,
     async close() {

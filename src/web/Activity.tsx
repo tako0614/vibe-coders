@@ -8,6 +8,9 @@ const names: Record<string, string> = {
   file_list: 'ファイルを確認',
   file_replace: 'ファイルを編集',
   shell_exec: 'コマンドを実行',
+  run_write: '端末に入力',
+  run_wait: '実行を待機',
+  run_end_input: '入力を終了',
   terminal_open: '端末を開く',
   terminal_write: '端末を操作',
   memory_write: '記憶を保存',
@@ -18,7 +21,6 @@ const names: Record<string, string> = {
   mcp_add: 'MCPを追加',
   mcp_connect: 'MCPに接続',
   run_read: '実行結果を確認',
-  native_start: 'エージェントを起動',
 };
 function parse(text?: string): Record<string, any> {
   try {

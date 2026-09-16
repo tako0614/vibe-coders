@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import type { DB } from './db';
 import * as s from './db/schema';
 import type { MessageBody } from '../shared/contracts';
+import { emptyWorkspace, workspaceSchema, type ShellWorkspace } from '../shared/shell';
 
 export class Store {
   readonly changes = new EventEmitter();
@@ -83,6 +84,43 @@ export class Store {
   assertEnabled() {
     if (this.stopped) throw new Error('All execution is stopped. Enable it explicitly first.');
   }
+  workspace(id: string): ShellWorkspace {
+    this.conversation(id);
+    const value = this.get(`terminal-workspace:${id}`, emptyWorkspace());
+    const ids = new Set(
+      this.db
+        .select({ id: s.runs.id })
+        .from(s.runs)
+        .where(eq(s.runs.conversationId, id))
+        .all()
+        .map((r) => r.id),
+    );
+    return {
+      ...value,
+      placements: Object.fromEntries(
+        Object.entries(value.placements).filter(([id]) => ids.has(id)),
+      ),
+      hidden: value.hidden.filter((id) => ids.has(id)),
+    };
+  }
+  updateWorkspace(id: string, value: unknown) {
+    const next = workspaceSchema.parse(value),
+      current = this.workspace(id);
+    if (next.revision !== current.revision)
+      throw new Error('デッキが別の画面で更新されました。更新後にもう一度操作してください。');
+    const ids = new Set(
+      this.db
+        .select({ id: s.runs.id })
+        .from(s.runs)
+        .where(eq(s.runs.conversationId, id))
+        .all()
+        .map((r) => r.id),
+    );
+    if ([...Object.keys(next.placements), ...next.hidden].some((id) => !ids.has(id)))
+      throw new Error('Unknown workspace run.');
+    this.set(`terminal-workspace:${id}`, { ...next, revision: current.revision + 1 });
+    return this.workspace(id);
+  }
   snapshot(id: string) {
     const context = this.get<{ through: number; count: number; updatedAt: number } | null>(
       `context:${id}`,
@@ -90,6 +128,7 @@ export class Store {
     );
     return {
       conversation: this.conversation(id),
+      workspace: this.workspace(id),
       messages: this.history(id),
       requests: this.db
         .select()
@@ -111,7 +150,6 @@ export class Store {
                   adapter: result.adapter,
                   threadId: result.threadId,
                   turnId: result.turnId,
-                  inputMode: run.state === 'running' ? result.inputMode : undefined,
                   sessionId: result.sessionId,
                   turnState: run.state === 'interrupted' ? 'unknown' : result.turnState,
                 }

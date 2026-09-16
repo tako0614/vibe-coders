@@ -8,16 +8,20 @@ import { api, type Snapshot } from './api';
 export function TerminalView({
   run,
   stopped,
+  focused = true,
 }: {
   run: Snapshot['runs'][number];
   stopped: boolean;
+  focused?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null),
     surface = useRef<HTMLDivElement>(null),
     current = useRef(run),
-    stoppedRef = useRef(stopped);
+    stoppedRef = useRef(stopped),
+    focusedRef = useRef(focused);
   current.current = run;
   stoppedRef.current = stopped;
+  focusedRef.current = focused;
   const terminalRef = useRef<Terminal | null>(null),
     retry = useRef<() => void>(() => {}),
     fitRef = useRef<() => void>(() => {});
@@ -62,9 +66,22 @@ export function TerminalView({
     const unconfirmed = new Set<number>();
     const terminal = new Terminal({
       fontFamily: '"SFMono-Regular",Consolas,"Liberation Mono",monospace',
-      fontSize: 14,
+      fontSize: (() => {
+        try {
+          return Math.max(
+            11,
+            Math.min(22, Number(localStorage.getItem('vibe-terminal-font')) || 14),
+          );
+        } catch {
+          return 14;
+        }
+      })(),
       cursorBlink: true,
-      scrollback: 5000,
+      cursorInactiveStyle: 'outline',
+      scrollback: 10000,
+      scrollSensitivity: 3,
+      macOptionIsMeta: true,
+      rightClickSelectsWord: true,
       theme: {
         background: '#202938',
         foreground: '#e6ebf4',
@@ -105,15 +122,48 @@ export function TerminalView({
       if (!disposed) resize();
     });
     terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown' || event.isComposing || event.keyCode === 229) return true;
+      const mac = /Mac|iPhone|iPad/.test(navigator.platform),
+        key = event.key.toLowerCase();
       if (
-        event.type === 'keydown' &&
-        (event.ctrlKey || event.metaKey) &&
-        event.key.toLowerCase() === 'c' &&
+        ((event.ctrlKey && event.shiftKey && key === 'c') ||
+          (mac && event.metaKey && key === 'c') ||
+          (event.ctrlKey && event.key === 'Insert')) &&
         terminal.hasSelection()
       ) {
+        event.preventDefault();
         void copy();
         return false;
       }
+      if (
+        (event.ctrlKey && event.shiftKey && key === 'v') ||
+        (mac && event.metaKey && key === 'v') ||
+        (event.shiftKey && event.key === 'Insert')
+      ) {
+        event.preventDefault();
+        if (writable()) {
+          if (navigator.clipboard?.readText)
+            void navigator.clipboard
+              .readText()
+              .then((text) => {
+                if (!disposed && writable()) terminal.paste(text);
+              })
+              .catch(() => {
+                if (!disposed) setPaste('');
+              });
+          else setPaste('');
+        }
+        return false;
+      }
+      if (
+        !mac &&
+        event.ctrlKey &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        ['w', 't', 'n', 'r', 's', 'p', 'j'].includes(key)
+      )
+        event.preventDefault();
       return true;
     });
     const input = terminal.onData((text) => {
@@ -142,13 +192,17 @@ export function TerminalView({
       setConnection('接続中…');
       try {
         if (stoppedRef.current || !['running', 'stopping'].includes(current.current.state)) {
-          const data = await api<{ text: string; nextOffset: number }>(
-            `/runs/${run.id}?offset=${offset}`,
-          );
-          if (!disposed) {
-            if (data.text) terminal.write(data.text);
-            offset = data.nextOffset;
-            setConnection(stoppedRef.current ? '停止中' : '終了');
+          let more = true;
+          while (more && !disposed) {
+            const data = await api<{ text: string; nextOffset: number; hasMore: boolean }>(
+              `/runs/${run.id}?offset=${offset}`,
+            );
+            if (!disposed) {
+              if (data.text) terminal.write(data.text);
+              offset = data.nextOffset;
+              setConnection(stoppedRef.current ? '停止中' : '終了');
+            }
+            more = data.hasMore;
           }
           return;
         }
@@ -170,7 +224,7 @@ export function TerminalView({
           if (disposed) return ws.close();
           setConnection('接続済み');
           resize();
-          if (writable()) terminal.focus();
+          if (writable() && focusedRef.current) terminal.focus();
         };
         ws.onmessage = (event) => {
           if (disposed || socket !== ws) return;
@@ -260,6 +314,15 @@ export function TerminalView({
       terminalRef.current = null;
     };
   }, [run.id]);
+  useEffect(() => {
+    if (focused && run.owner === 'human') {
+      const frame = requestAnimationFrame(() => {
+        fitRef.current();
+        terminalRef.current?.focus();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [focused, run.owner]);
   const canType = run.owner === 'human' && run.state === 'running' && !stopped;
   const key = (value: string) => {
     terminalRef.current?.input(value, true);
@@ -295,6 +358,9 @@ export function TerminalView({
               const t = terminalRef.current;
               if (t) {
                 t.options.fontSize = Math.max(11, Number(t.options.fontSize) - 1);
+                try {
+                  localStorage.setItem('vibe-terminal-font', String(t.options.fontSize));
+                } catch {}
                 fitRef.current();
               }
             }}
@@ -308,6 +374,9 @@ export function TerminalView({
               const t = terminalRef.current;
               if (t) {
                 t.options.fontSize = Math.min(22, Number(t.options.fontSize) + 1);
+                try {
+                  localStorage.setItem('vibe-terminal-font', String(t.options.fontSize));
+                } catch {}
                 fitRef.current();
               }
             }}

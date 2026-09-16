@@ -29,7 +29,7 @@ import {
   type ToolDefinition,
 } from './model';
 import { searchWeb, extractPdf } from './content';
-import { NativeService, nativeSchema, nativeInputSchema } from './native';
+import { shellSchema } from '../shared/shell';
 import { CodexAuth } from './codex-auth';
 import { environmentSchema, inspectEnvironment, environmentInstructions } from './environment';
 
@@ -75,7 +75,6 @@ export class Agent {
     readonly scheduler: Scheduler,
     readonly mcp: McpService,
     readonly desktop: Desktop,
-    readonly native: NativeService,
     readonly codex: CodexAuth,
   ) {
     this.context = new ConversationContext(store, model, vault);
@@ -438,18 +437,6 @@ export class Agent {
     });
     return [
       tool(
-        'native_start',
-        'Start a Codex App Server turn or Claude Code structured run. Returns immediately. Read/stop via run tools. While running, read result.turnId and use native_input to steer Codex or interrupt and redirect Claude. After completion use resumeId for another turn. Native runs have no PTY. Completion reports actual turn/session state.',
-        nativeSchema,
-        (a) => this.native.start(conversationId, a),
-      ),
-      tool(
-        'native_input',
-        'Give an active native child an additional instruction. Read run_read for the current result.turnId first. Codex steers the same turn; Claude interrupts then continues the same session. Reuse operationId for a retry of the identical input; unknown delivery is never automatically replayed.',
-        nativeInputSchema.extend({ id: z.string() }),
-        ({ id, ...input }) => this.native.input(id, input),
-      ),
-      tool(
         'file_list',
         'List directory entries. Relative paths use Home.',
         z.object({ path: z.string().default('.') }),
@@ -490,16 +477,22 @@ export class Agent {
       tool(
         'shell_exec',
         'Start a command at explicit cwd or Home. Returns a run handle immediately. Completion is a separate event.',
-        z.object({ command: z.string().min(1).max(32000), cwd: z.string().optional() }),
-        (a) => this.runs.shell(conversationId, a.command, a.cwd),
+        shellSchema,
+        (a) => this.runs.start(conversationId, a),
       ),
-      tool('run_list', 'Read recorded runs. Generic CLI turn state is unknown.', z.object({}), () =>
-        this.store.db
-          .select()
-          .from(runs)
-          .where(eq(runs.conversationId, conversationId))
-          .all()
-          .map(({ output, result, ...r }) => r),
+      tool(
+        'run_list',
+        'Read this conversation’s decks and recorded processes. CLI task completion is unknown.',
+        z.object({}),
+        () => ({
+          workspace: this.store.workspace(conversationId),
+          runs: this.store.db
+            .select()
+            .from(runs)
+            .where(eq(runs.conversationId, conversationId))
+            .all()
+            .map(({ output, result, ...r }) => r),
+        }),
       ),
       tool(
         'run_read',
@@ -515,25 +508,44 @@ export class Agent {
         this.runs.stop(a.id),
       ),
       tool(
-        'terminal_open',
-        'Start a persistent PTY for a shell or arbitrary CLI in Home.',
-        z.object({ command: z.array(z.string()).min(1).optional(), cwd: z.string().optional() }),
-        (a) => this.runs.terminal(conversationId, a.command, a.cwd),
-      ),
-      tool(
         'terminal_screen',
         'Observe the current rendered terminal screen, including TUI and Unicode.',
         idSchema,
         (a) => this.runs.screen(a.id),
       ),
       tool(
-        'terminal_write',
-        'Write text or control bytes to an agent-owned PTY using its observed ownership epoch.',
+        'run_write',
+        'Write text or control bytes to an agent-owned process using the epoch from run_read. Acceptance confirms transport input only.',
         z.object({ id: z.string(), text: z.string().max(32000), epoch: z.number().int() }),
         (a) => {
           this.runs.write(a.id, a.text, 'agent', a.epoch);
           return { sent: true };
         },
+      ),
+      tool(
+        'run_end_input',
+        'Close stdin of an agent-owned pipe process; further input is unavailable.',
+        z.object({ id: z.string(), epoch: z.number().int() }),
+        (a) => {
+          this.runs.endInput(a.id, 'agent', a.epoch);
+          return { closed: true };
+        },
+      ),
+      tool(
+        'run_handoff',
+        'Hand a process to the human. Agent reads and writes are suspended until the human returns it.',
+        idSchema,
+        (a) => this.runs.handoff(a.id, 'human'),
+      ),
+      tool(
+        'run_wait',
+        'Wait up to 20 seconds for output or process exit. Returns bounded output and process state.',
+        z.object({
+          id: z.string(),
+          offset: z.number().int().nonnegative().default(0),
+          timeoutMs: z.number().int().min(0).max(20000).default(10000),
+        }),
+        (a) => this.runs.wait(a.id, a.offset, a.timeoutMs),
       ),
       tool(
         'terminal_resize',

@@ -19,7 +19,9 @@ import {
 } from 'lucide-react';
 import { api, ApiError, listen, setLogin, stateLabel, type Snapshot, type Status } from './api';
 import { Chat, RequestCard, type ComposerDraft } from './Chat';
-const TerminalPanel = lazy(() => import('./Panels').then((m) => ({ default: m.TerminalPanel })));
+const TerminalPanel = lazy(() =>
+  import('./TerminalWorkspace').then((m) => ({ default: m.TerminalPanel })),
+);
 const SchedulesPanel = lazy(() => import('./Panels').then((m) => ({ default: m.SchedulesPanel })));
 const SettingsPanel = lazy(() => import('./Panels').then((m) => ({ default: m.SettingsPanel })));
 const MemoryPanel = lazy(() => import('./Panels').then((m) => ({ default: m.MemoryPanel })));
