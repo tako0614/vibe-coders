@@ -83,10 +83,10 @@ export function TerminalView({
       macOptionIsMeta: true,
       rightClickSelectsWord: true,
       theme: {
-        background: '#202938',
-        foreground: '#e6ebf4',
-        cursor: '#91a9ff',
-        selectionBackground: '#43567d',
+        background: '#181818',
+        foreground: '#e5e5e5',
+        cursor: '#fafafa',
+        selectionBackground: '#454545',
       },
     });
     terminalRef.current = terminal;

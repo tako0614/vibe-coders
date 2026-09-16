@@ -44,7 +44,7 @@ export class ChatModel implements ModelAdapter {
   ) {}
   async call(input: ModelInput): Promise<MessageBody> {
     const p = this.config.read().provider;
-    if (!p) throw new Error('MODEL_NOT_CONFIGURED');
+    if (!p?.model) throw new Error('MODEL_NOT_CONFIGURED');
     if (p.kind === 'codex') throw new Error('Use the Codex subscription model adapter.');
     const key = this.vault.get('provider:main', p.revision);
     if (p.keyRequired && !key) throw new Error('MODEL_KEY_MISSING');

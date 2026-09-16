@@ -7,7 +7,7 @@
 Bun 1.3.14以上を先にインストールしてください。
 
 ```sh
-npm install -g vibe-coders@0.2.0
+npm install -g vibe-coders@0.2.1
 vibe-coders setup
 cd /path/to/workspace
 vibe-coders init
@@ -34,6 +34,8 @@ vibe-coders
 
 旧 `@tako0614/vibe-coder` から改名しています。保存先は従来の `~/.config/vibe-coder` と `~/.local/share/vibe-coder`、環境変数は `VIBE_CODER_*` を引き継ぎます。同じHomeで起動すると既存の設定・会話・記憶を使用できます。
 
+モデル変更はチャット内で完結します。設定画面は認証と接続先の管理に使用します。API接続はモデルを未選択のままキーを保存でき、チャットでモデルを選ぶと待機中の依頼を開始します。
+
 ## 実行環境
 
 初期リリースの実機検証対象はLinuxです。WindowsのPTYはnode-pty / ConPTYの経路を用意していますが、Windows・macOSでの実機検証は別途必要です。
@@ -48,7 +50,7 @@ Linuxでは起動時にアクセス可能なX11画面を確認し、なければ
 
 MCP接続の「追加したい機能」やチャットから「Chromeを導入してMCPで接続して」と依頼できます。親がOS・既存環境を確認し、通常のChromeと必要なMCPを導入・登録・接続します。親モデルと対象ホストへの操作経路が必要です。Chromeのリモートデバッグ許可など、本人操作が必要な箇所は入力カードへ回します。
 
-Codexサブスクは既存の `CODEX_HOME/auth.json`（既定 `~/.codex/auth.json`）をそのまま使います。有効な認証があれば再ログインなしで、モデルを選んで「このモデルでチャットを始める」で接続できます。認証がない場合だけWebUIのコード・ブラウザ認証を使います。keyringのみの認証読取は未対応です。CLIで設定する場合は `vibe-coders provider configure --kind codex --model MODEL_ID` です。親はアプリ内のResponses接続で推論し、Vibe CodersがMCP・ファイル・予定・記憶を実行します。APIキーは不要です。
+Codexサブスクは既存の `CODEX_HOME/auth.json`（既定 `~/.codex/auth.json`）をそのまま使います。有効な認証があれば再ログインなしで利用できます。設定で「Codexを使う」を選び、チャット入力欄のモデルpickerでモデルを検索・選択するかIDを直接入力します。認証がない場合だけWebUIのコード・ブラウザ認証を使います。keyringのみの認証読取は未対応です。CLIで設定する場合は `vibe-coders provider configure --kind codex --model MODEL_ID` です。親はアプリ内のResponses接続で推論し、Vibe CodersがMCP・ファイル・予定・記憶を実行します。APIキーは不要です。
 
 認証が必要な間は親の推論を待機し、ログイン完了で元の依頼を再開します。Codexが認証情報を保存・更新し、アプリが認証情報を会話・モデル入力・Atomへ渡すことはありません。サブスクの利用枠不足をAPI課金へ自動で切り替えません。Codexのサブスク向け接続仕様の変更によって更新が必要になる場合があります。
 

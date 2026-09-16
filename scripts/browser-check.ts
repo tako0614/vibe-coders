@@ -61,6 +61,23 @@ const until = async (expression: string, timeout = 10000) => {
   }
 };
 const clickText = async (text: string) => {
+  if (
+    [
+      'チャット',
+      'ターミナル',
+      '予定',
+      'ファイル',
+      '記憶',
+      '入力依頼',
+      'デスクトップ',
+      '設定・接続',
+      '新しい会話',
+    ].includes(text)
+  ) {
+    await evaluate(
+      `(()=>{ if (innerWidth<=760 && document.querySelector('.app-shell.sidebar-hidden')) document.querySelector('button[aria-label="サイドバーを切り替え"]')?.click(); })()`,
+    );
+  }
   await until(
     `Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes(${JSON.stringify(text)}))`,
   );
@@ -144,7 +161,7 @@ try {
   await screenshot('desktop');
   await setValue('.composer textarea', '送信済みの下書きを残さない');
   await evaluate(`document.querySelector('button[aria-label="メッセージを送信"]').click()`);
-  await until(`!!document.querySelector('.provider-picker')`);
+  await until(`!!document.querySelector('.wait-note')`);
   await until(
     `new Promise(done => { const r = indexedDB.open('vibe-coders-drafts'); r.onsuccess = () => { const db = r.result, g = db.transaction('drafts').objectStore('drafts').getAll(); g.onsuccess = () => { done(!g.result.some(d => d.text === '送信済みの下書きを残さない')); db.close(); }; }; })`,
   );
@@ -457,7 +474,6 @@ try {
   await evaluate(
     `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('APIキー')).click()`,
   );
-  await setValue('input[name="model"]', 'fixture-model');
   await evaluate(`document.querySelector('form.form-card').requestSubmit()`);
   await until(`!!document.querySelector('.request-card input[type="password"]')`);
   await until(`!!document.querySelector('input[type="password"]')`);
@@ -470,34 +486,44 @@ try {
   );
   if (await evaluate(`document.body.textContent.includes('browser-only-fixture-secret')`))
     throw new Error('Secret appeared in visible content.');
+  const openModels = async () => {
+    await evaluate(`document.querySelector('button[aria-label="モデルを選択"]').click()`);
+    await until(`!!document.querySelector('.chat-model-dialog[open]')`);
+  };
   if (process.env.VIBE_CODER_TEST_AUTH === '1') {
     await clickText('設定・接続');
     await until(`!!document.querySelector('.provider-picker')`);
     await evaluate(
       `Array.from(document.querySelectorAll('.provider-picker button')).find(b=>b.textContent.includes('Codex')).click()`,
     );
-    await until(`document.querySelector('input[name="model"]')?.value === 'subscription-model'`);
-    await setValue('input[name="model"]', 'typed-codex-model');
-    await evaluate(`document.querySelector('input[name="model"]').blur()`);
-    await until(`document.querySelector('input[name="model"]')?.value === 'typed-codex-model'`);
-    await evaluate(`document.querySelector('button[aria-label="モデル一覧を開く"]').click()`);
+    await until(`document.querySelector('.codex-login')?.textContent.includes('ログイン済み')`);
+    if (await evaluate(`!!document.querySelector('input[name="model"]')`))
+      throw new Error('Model picker remained in settings.');
+    await clickText('Codexを使う');
+    await until(`!!document.querySelector('.composer')`);
+    await setValue('.composer textarea', 'モデルを変更しても下書きを保持');
+    await openModels();
     await until(`!!document.querySelector('[role="option"]')`);
-    await evaluate(`document.querySelector('[role="option"]').click()`);
-    if (
-      await evaluate(
-        `!!document.querySelector('.provider-card input[name="baseUrl"],.provider-card input[name="keyRequired"]')`,
-      )
-    )
-      throw new Error('Subscription provider still requires API setup.');
-    await clickText('このモデルでチャットを始める');
+    await setValue('input[name="model"]', 'typed-codex-model');
+    await clickText('を使用');
+    await until(
+      `document.querySelector('.model-label')?.textContent.includes('typed-codex-model')`,
+    );
+    await until(
+      `document.querySelector('.composer textarea')?.value==='モデルを変更しても下書きを保持'`,
+    );
+    await openModels();
+    await until(
+      `Array.from(document.querySelectorAll('[role="option"]')).some(b=>b.textContent.includes('Subscription fixture'))`,
+    );
+    await evaluate(
+      `Array.from(document.querySelectorAll('[role="option"]')).find(b=>b.textContent.includes('Subscription fixture')).click()`,
+    );
     await until(
       `document.querySelector('.model-label')?.textContent.includes('subscription-model')`,
     );
-    await clickText('設定・接続');
-    await until(
-      `document.querySelector('.provider-card .status-chip')?.textContent.includes('接続済み')`,
-    );
     await screenshot('codex-parent');
+    await setValue('.composer textarea', '');
   }
   if (process.env.VIBE_CODER_TEST_MODEL_PORT) {
     await clickText('設定・接続');
@@ -509,28 +535,41 @@ try {
       'input[name="baseUrl"]',
       `http://127.0.0.1:${process.env.VIBE_CODER_TEST_MODEL_PORT}/v1`,
     );
-    await until(`document.querySelector('input[name="model"]')?.value === ''`);
     await setValue('input[name="credential"]', 'picker-fixture-key');
-    await evaluate(`document.querySelector('input[name="model"]').focus()`);
-    await until(`!document.querySelector('button[aria-label="モデル一覧を再取得"]').disabled`);
-    await evaluate(`document.querySelector('button[aria-label="モデル一覧を再取得"]').click()`);
-    await evaluate(`document.querySelector('input[name="model"]').focus()`);
+    await clickText('保存して接続する');
+    await until(`!!document.querySelector('.composer')`);
+    await openModels();
     await until(
       `Array.from(document.querySelectorAll('[role="option"]')).some(e=>e.textContent.includes('Alpha picker model'))`,
     );
     await screenshot('model-picker');
     await setValue('input[name="model"]', 'beta');
     await until(`document.querySelectorAll('[role="option"]').length===1`);
-    await evaluate(`document.querySelector('[role="option"]').click()`);
-    await until(`document.querySelector('input[name="model"]').value==='fixture/beta'`);
-    await clickText('保存して接続する');
-    await until(`document.querySelector('.model-label')?.textContent.includes('fixture/beta')`);
-    await clickText('設定・接続');
-    await until(
-      `document.querySelector('input[name="credential"]')?.placeholder.includes('保存済み')`,
+    await command(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+      sessionId,
     );
+    await command(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 },
+      sessionId,
+    );
+    await until(`document.querySelector('.model-label')?.textContent.includes('fixture/beta')`);
+    await openModels();
     await setValue('input[name="model"]', 'fixture/manual-model');
-    await clickText('保存して接続する');
+    await clickText('を使用');
+    await until(
+      `document.querySelector('.model-label')?.textContent.includes('fixture/manual-model')`,
+    );
+    await openModels();
+    await setValue('input[name="model"]', 'never-save-on-escape');
+    await command(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+      sessionId,
+    );
+    await until(`!document.querySelector('.chat-model-dialog[open]')`);
     await until(
       `document.querySelector('.model-label')?.textContent.includes('fixture/manual-model')`,
     );
@@ -632,6 +671,65 @@ try {
   );
   await Bun.sleep(300);
   await screenshot('mobile');
+  await until(`!!document.querySelector('.app-shell.sidebar-hidden')`);
+  await evaluate(`document.querySelector('button[aria-label="サイドバーを切り替え"]').click()`);
+  await until(
+    `!!document.querySelector('.sidebar-backdrop') && document.querySelector('.workspace').inert`,
+  );
+  await setValue('input[aria-label="会話を検索"]', 'no-such-conversation-xyz');
+  await until(`!!document.querySelector('.history-empty')`);
+  await setValue('input[aria-label="会話を検索"]', '');
+  await screenshot('mobile-navigation');
+  await command(
+    'Input.dispatchKeyEvent',
+    { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+    sessionId,
+  );
+  await until(
+    `!!document.querySelector('.app-shell.sidebar-hidden') && !document.querySelector('.workspace').inert`,
+  );
+  const savedDraft = await evaluate(`document.querySelector('.composer textarea').value`);
+  const shortHeight = await evaluate(
+    `document.querySelector('.composer textarea').getBoundingClientRect().height`,
+  );
+  await setValue('.composer textarea', Array(12).fill('入力欄の高さを確認').join('\n'));
+  await until(
+    `document.querySelector('.composer textarea').getBoundingClientRect().height > ${shortHeight + 30}`,
+  );
+  await setValue('.composer textarea', savedDraft);
+  await openModels();
+  await until(`document.activeElement?.getAttribute('name') === 'model'`);
+  await screenshot('mobile-model-picker');
+  const pickerBounds = await evaluate(
+    `(()=>{const r=document.querySelector('.chat-model-dialog').getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};})()`,
+  );
+  if (
+    pickerBounds.left < 0 ||
+    pickerBounds.right > 390 ||
+    pickerBounds.top < 0 ||
+    pickerBounds.bottom > 844
+  )
+    throw Error('Mobile picker outside viewport');
+  await command(
+    'Input.dispatchKeyEvent',
+    { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+    sessionId,
+  );
+  await until(`!document.querySelector('.chat-model-dialog[open]')`);
+  await evaluate(`document.querySelector('button[aria-label="サイドバーを切り替え"]').click()`);
+  const olderTitle = await evaluate(
+    `Array.from(document.querySelectorAll('.conversation-list button')).at(-1).title`,
+  );
+  await evaluate(
+    `Array.from(document.querySelectorAll('.conversation-list button')).at(-1).click()`,
+  );
+  await until(
+    `document.querySelector('.conversation-list .current')?.title===${JSON.stringify(olderTitle)}`,
+  );
+  await command('Page.reload', {}, sessionId);
+  await until(
+    `document.querySelector('.conversation-list .current')?.title===${JSON.stringify(olderTitle)}`,
+  );
   const dimensions = await evaluate(
     `({width:innerWidth,body:document.documentElement.scrollWidth})`,
   );
@@ -660,6 +758,7 @@ try {
           : []),
         'secret form',
         'mobile layout',
+        'mobile drawer/search/Escape, picker bounds and focus, composer auto-height, selected conversation survives reload',
         'MCP setup and provider-independent npm installation form',
         ...(process.env.VIBE_CODER_TEST_AUTH === '1'
           ? [

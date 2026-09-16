@@ -81,6 +81,7 @@ export function createRuntime(options: {
       const provider = config.read().provider;
       return (
         !!provider &&
+        !!provider.model &&
         (provider.kind === 'codex' ||
           !provider.keyRequired ||
           !!vault.get('provider:main', provider.revision))

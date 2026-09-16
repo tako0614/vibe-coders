@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   Brain,
   Check,
-  ChevronDown,
   CircleHelp,
   Clock3,
   FolderOpen,
@@ -12,6 +11,7 @@ import {
   Monitor,
   Plus,
   Settings2,
+  Search,
   SquareTerminal,
   X,
   PanelLeftClose,
@@ -48,9 +48,37 @@ export function App() {
     [error, setError] = useState(''),
     [connectionError, setConnectionError] = useState(''),
     [login, setLoginNeeded] = useState(false),
-    [sidebar, setSidebar] = useState(true),
+    [sidebar, setSidebar] = useState(() => !window.matchMedia('(max-width: 760px)').matches),
     [connected, setConnected] = useState(false),
     [settingsSection, setSettingsSection] = useState('model');
+  const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const side = useRef<HTMLElement>(null),
+    menu = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 760px)');
+    const changed = () => {
+      setMobile(query.matches);
+      setSidebar(!query.matches);
+    };
+    query.addEventListener('change', changed);
+    return () => query.removeEventListener('change', changed);
+  }, []);
+  useEffect(() => {
+    if (!mobile || !sidebar) return;
+    side.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSidebar(false);
+      }
+    };
+    window.addEventListener('keydown', escape);
+    return () => {
+      window.removeEventListener('keydown', escape);
+      requestAnimationFrame(() => menu.current?.focus());
+    };
+  }, [mobile, sidebar]);
   const drafts = useRef(new Map<string, ComposerDraft>());
   const inFlight = useRef(false),
     refreshAgain = useRef(false),
@@ -67,7 +95,13 @@ export function App() {
       setStatus(status);
       setConnectionError('');
       setLoginNeeded(false);
-      const id = selectedRef.current || status.conversations[0]?.id;
+      let saved = '';
+      try {
+        saved = localStorage.getItem(`vibe-conversation:${status.home}`) || '';
+      } catch {}
+      const id =
+        selectedRef.current ||
+        (status.conversations.some((c) => c.id === saved) ? saved : status.conversations[0]?.id);
       if (id) {
         if (!selectedRef.current) {
           selectedRef.current = id;
@@ -120,19 +154,29 @@ export function App() {
   const navigate = (next: View, section = 'model') => {
     if (next === 'settings') setSettingsSection(section);
     setView(next);
+    if (mobile) setSidebar(false);
   };
   const choose = (id: string) => {
     selectedRef.current = id;
     setSelected(id);
     setSnapshot(undefined);
     setView('chat');
+    if (mobile) setSidebar(false);
+    try {
+      if (status) localStorage.setItem(`vibe-conversation:${status.home}`, id);
+    } catch {}
     void refresh();
   };
-  const newChat = () =>
-    action(async () => {
+  const newChat = async () => {
+    if (creating) return;
+    setCreating(true);
+    await action(async () => {
       const c = await api<{ id: string }>('/conversations', 'POST', {});
+      setHistoryQuery('');
       choose(c.id);
     });
+    setCreating(false);
+  };
   const pending =
     snapshot?.requests.filter((r) => ['pending', 'processing'].includes(r.state)) || [];
   const activeRuns = snapshot?.runs.filter((r) => r.state === 'running') || [];
@@ -177,14 +221,49 @@ export function App() {
     );
   return (
     <div className={`app-shell ${sidebar ? '' : 'sidebar-hidden'}`}>
-      <aside className="sidebar">
+      {mobile && sidebar && (
+        <button
+          className="sidebar-backdrop"
+          aria-label="メニューを閉じる"
+          onClick={() => setSidebar(false)}
+        />
+      )}
+      <aside
+        ref={side}
+        id="app-sidebar"
+        className="sidebar"
+        aria-label="ナビゲーション"
+        role={mobile && sidebar ? 'dialog' : undefined}
+        aria-modal={mobile && sidebar ? true : undefined}
+        onKeyDown={(e) => {
+          if (!mobile || !sidebar || e.key !== 'Tab') return;
+          const nodes = side.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input');
+          if (!nodes?.length) return;
+          if (e.shiftKey && document.activeElement === nodes[0]) {
+            e.preventDefault();
+            nodes[nodes.length - 1].focus();
+          } else if (!e.shiftKey && document.activeElement === nodes[nodes.length - 1]) {
+            e.preventDefault();
+            nodes[0].focus();
+          }
+        }}
+      >
         <div className="wordmark">
           <span className="brand-icon">
             <SquareTerminal size={19} />
           </span>
-          Vibe Coders <span className="version">LOCAL</span>
+          Vibe Coders
+          {mobile && (
+            <button
+              className="icon-button sidebar-close"
+              aria-label="サイドバーを閉じる"
+              onClick={() => setSidebar(false)}
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
-        <button className="home-label" onClick={() => setView('files')} title={status?.home}>
+        <button className="home-label" onClick={() => navigate('files')} title={status?.home}>
           <span className="repo-avatar">
             {status?.home.split('/').pop()?.slice(0, 1).toUpperCase() || 'V'}
           </span>
@@ -192,17 +271,23 @@ export function App() {
             <strong>{status?.home.split('/').pop() || 'Workspace'}</strong>
             <small>作業フォルダ</small>
           </span>
-          <ChevronDown size={14} />
+          <ArrowUpRight size={14} />
         </button>
-        <button className="new-chat" aria-label="新しい会話" onClick={() => void newChat()}>
-          <Plus size={16} /> 新しい会話 <kbd>＋</kbd>
+        <button
+          className="new-chat"
+          aria-label="新しい会話"
+          disabled={creating}
+          onClick={() => void newChat()}
+        >
+          <Plus size={16} /> 新しい会話
         </button>
         <nav>
           {navigation.map(([id, Icon, name]) => (
             <button
               key={id}
               className={view === id ? 'selected' : ''}
-              onClick={() => setView(id)}
+              onClick={() => navigate(id)}
+              aria-current={view === id ? 'page' : undefined}
               title={name}
               aria-label={name}
             >
@@ -214,20 +299,36 @@ export function App() {
           ))}
         </nav>
         <div className="history-label">
-          最近の会話 <span>{status?.conversations.length || 0}</span>
+          会話 <span>{status?.conversations.length || 0}</span>
+        </div>
+        <div className="history-search">
+          <Search size={14} aria-hidden="true" />
+          <input
+            aria-label="会話を検索"
+            placeholder="会話を検索"
+            value={historyQuery}
+            onChange={(e) => setHistoryQuery(e.target.value)}
+          />
         </div>
         <div className="conversation-list">
-          {status?.conversations.map((c) => (
-            <button
-              key={c.id}
-              className={selected === c.id ? 'current' : ''}
-              onClick={() => choose(c.id)}
-            >
-              <MessageSquare size={13} />
-              <span>{c.title}</span>
-              {c.state === 'running' && <i className="live-dot" />}
-            </button>
-          ))}
+          {status?.conversations
+            .filter((c) => c.title.toLocaleLowerCase().includes(historyQuery.toLocaleLowerCase()))
+            .map((c) => (
+              <button
+                key={c.id}
+                className={selected === c.id ? 'current' : ''}
+                onClick={() => choose(c.id)}
+                title={c.title}
+              >
+                <MessageSquare size={13} />
+                <span>{c.title}</span>
+                {c.state === 'running' && <i className="live-dot" />}
+              </button>
+            ))}
+          {historyQuery &&
+            !status?.conversations.some((c) =>
+              c.title.toLocaleLowerCase().includes(historyQuery.toLocaleLowerCase()),
+            ) && <p className="history-empty">見つかりませんでした</p>}
         </div>
         <div className="sidebar-bottom">
           <button
@@ -247,13 +348,16 @@ export function App() {
           </div>
         </div>
       </aside>
-      <div className="workspace">
+      <div className="workspace" inert={mobile && sidebar}>
         <header className="topbar">
           <div>
             <button
               className="icon-button"
+              ref={menu}
               title="サイドバーを切り替え"
               aria-label="サイドバーを切り替え"
+              aria-expanded={sidebar}
+              aria-controls="app-sidebar"
               onClick={() => setSidebar(!sidebar)}
             >
               {sidebar ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
@@ -268,14 +372,16 @@ export function App() {
                 className={`live-dot ${snapshot?.conversation.state === 'running' ? 'pulse' : 'off'}`}
               />{' '}
               {!status?.providerReady
-                ? 'AI未接続'
+                ? status?.config.provider && !status.config.provider.model
+                  ? 'モデル未選択'
+                  : 'AI未接続'
                 : stateLabel[snapshot?.conversation.state || 'idle']}
             </span>
             <button
               className="icon-button"
               title="接続を確認"
               aria-label="接続を確認"
-              onClick={() => setView('settings')}
+              onClick={() => navigate('settings')}
             >
               <CircleHelp size={17} />
             </button>

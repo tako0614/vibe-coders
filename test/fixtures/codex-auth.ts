@@ -12,6 +12,12 @@ const state = () => {
     return {};
   }
 };
+if (process.argv.includes('debug') && process.argv.includes('models')) {
+  const catalog = state().catalog;
+  if (!catalog) process.exit(2);
+  send(catalog);
+  process.exit(0);
+}
 let loginId = '',
   delivered = false;
 createInterface({ input: process.stdin }).on('line', (line) => {
@@ -21,7 +27,11 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     `${JSON.stringify({ method: req.method, input: req.params?.input })}\n`,
   );
   const reply = (result: unknown) => send({ id: req.id, result });
-  if (req.method === 'initialize') reply({ userAgent: 'auth-fixture' });
+  if (req.method === 'initialize') {
+    if (state().failInitialize)
+      send({ id: req.id, error: { code: -32000, message: 'State DB unavailable' } });
+    else reply({ userAgent: 'auth-fixture' });
+  }
   if (req.method === 'model/list')
     reply({
       data: [

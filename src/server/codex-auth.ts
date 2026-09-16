@@ -6,6 +6,9 @@ import { eq } from 'drizzle-orm';
 import { requests } from './db/schema';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { execFile } from 'node:child_process';
+import { shellEnvironment } from './runs';
+import type { ModelChoice } from '../shared/models';
 
 type AuthState =
   'unchecked' | 'missing' | 'signed_out' | 'starting' | 'waiting' | 'signed_in' | 'ready' | 'error';
@@ -33,6 +36,8 @@ export class CodexAuth {
   private closed = false;
   private probes = new Set<JsonProcess>();
   private checking?: Promise<ReturnType<CodexAuth['status']>>;
+  private catalogAbort = new AbortController();
+  private catalogLoading?: Promise<ModelChoice[]>;
   constructor(
     readonly store: Store,
     readonly human: HumanService,
@@ -90,7 +95,7 @@ export class CodexAuth {
     try {
       await client.request(
         'initialize',
-        { clientInfo: { name: 'vibe_coders', version: '0.2.0' } },
+        { clientInfo: { name: 'vibe_coders', version: '0.2.1' } },
         10000,
       );
       client.send({ method: 'initialized', params: {} });
@@ -210,6 +215,55 @@ export class CodexAuth {
   }
   async models() {
     this.store.assertEnabled();
+    if (this.closed) throw new Error('Codex authentication is closed.');
+    if (this.catalogLoading) return this.catalogLoading;
+    // The catalog command refreshes through Codex's own auth/config and avoids
+    // opening its conversation DB, which may be busy in another native session.
+    this.catalogLoading = this.catalogModels().catch(() => this.rpcModels());
+    try {
+      return await this.catalogLoading;
+    } finally {
+      this.catalogLoading = undefined;
+    }
+  }
+  private async catalogModels(): Promise<ModelChoice[]> {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(
+        this.command[0],
+        [...this.command.slice(1), 'debug', 'models'],
+        {
+          cwd: this.home,
+          env: shellEnvironment(),
+          encoding: 'utf8',
+          timeout: 10000,
+          maxBuffer: 4 * 1024 * 1024,
+          windowsHide: true,
+          signal: this.catalogAbort.signal,
+        },
+        (error, out) => (error ? reject(new Error('Codex catalog unavailable.')) : resolve(out)),
+      );
+    });
+    const catalog = JSON.parse(stdout);
+    if (!Array.isArray(catalog.models) || catalog.models.length > 2000)
+      throw new Error('Invalid catalog.');
+    const choices = catalog.models
+      .filter(
+        (m: any) =>
+          m.visibility === 'list' &&
+          typeof m.slug === 'string' &&
+          m.slug.length > 0 &&
+          m.slug.length <= 200,
+      )
+      .sort((a: any, b: any) => (Number(a.priority) || 0) - (Number(b.priority) || 0));
+    if (!choices.length) throw new Error('Empty catalog.');
+    return choices.map((m: any, index: number) => ({
+      id: m.slug,
+      name: typeof m.display_name === 'string' ? m.display_name.slice(0, 200) : m.slug,
+      isDefault: index === 0,
+    }));
+  }
+  // Older CLI versions may only expose the App Server catalog.
+  private async rpcModels() {
     const client = await this.open();
     try {
       const result: { id: string; name: string; isDefault: boolean }[] = [];
@@ -421,6 +475,7 @@ export class CodexAuth {
     if (!success) throw new Error('Codex sign-in was not completed.');
   }
   async close() {
+    this.catalogAbort.abort();
     this.closed = true;
     this.store.changes.off('change', this.checkLifecycle);
     await this.cancel();

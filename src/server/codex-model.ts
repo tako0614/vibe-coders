@@ -68,7 +68,7 @@ export class CodexModel implements ModelAdapter {
   }
   async call(input: ModelInput): Promise<MessageBody> {
     const provider = this.config.read().provider;
-    if (provider?.kind !== 'codex') throw new Error('MODEL_NOT_CONFIGURED');
+    if (provider?.kind !== 'codex' || !provider.model) throw new Error('MODEL_NOT_CONFIGURED');
     input.signal.throwIfAborted();
     let credentials;
     try {

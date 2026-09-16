@@ -284,9 +284,9 @@ export class RunService {
     // A TUI must receive terminal reports even when no browser is attached.
     screen.onData(respond);
     for (const [code, color] of [
-      [10, 'e6e6/ebeb/f4f4'],
-      [11, '2020/2929/3838'],
-      [12, '9191/a9a9/ffff'],
+      [10, 'e5e5/e5e5/e5e5'],
+      [11, '1818/1818/1818'],
+      [12, 'fafa/fafa/fafa'],
     ] as const)
       screen.parser.registerOscHandler(code, (data) => {
         if (data !== '?') return false;

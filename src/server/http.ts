@@ -151,7 +151,7 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
         r.config.read().provider!.kind !== 'codex' &&
         !!r.vault.get('provider:main', r.config.read().provider!.revision),
       providerReady:
-        !!r.config.read().provider &&
+        !!r.config.read().provider?.model &&
         (r.config.read().provider!.kind === 'codex'
           ? r.codex.status().subscriptionReady
           : !r.config.read().provider!.keyRequired ||
@@ -427,6 +427,16 @@ export function createHttp(runtime: Runtime, options: { devOrigin?: string } = {
       .parse(await c.req.json());
     if (provider.kind === 'codex' && credential)
       throw new Error('Codexは端末の認証情報を使用します。');
+    if (/^sk-[\w-]{20,}$/.test(provider.model))
+      throw new Error('APIキーはモデル名ではなく、APIキーの専用欄に入力してください。');
+    const previous = r.config.read().provider;
+    if (
+      (previous?.model !== provider.model ||
+        previous?.baseUrl !== provider.baseUrl ||
+        previous?.kind !== provider.kind) &&
+      r.store.listConversations().some((conversation) => conversation.state === 'running')
+    )
+      throw new Error('実行が完了してからモデルや接続先を変更してください。');
     const key =
       provider.kind === 'codex' || !provider.keyRequired
         ? undefined

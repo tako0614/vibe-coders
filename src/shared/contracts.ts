@@ -126,7 +126,7 @@ export const providerSchema = z
           (u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)))
       );
     }, 'Use HTTPS, or HTTP on loopback, without credentials or query parameters.'),
-    model: z.string().min(1).max(200),
+    model: z.string().trim().max(200).default(''),
     supportsImages: z.boolean().default(true),
     keyRequired: z.boolean().default(true),
   })

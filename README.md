@@ -8,7 +8,7 @@
 
 Bun 1.3.14以上が必要です。初期の検証対象はLinuxです。
 
-npm公開済み版は `npm install -g vibe-coders@0.1.8`、このソースの0.2.0は配布tarballから導入できます（常用LAN版には反映済み、npm公開は認証待ち）。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
+npm公開済み版は `npm install -g vibe-coders@0.1.8`、このソースの0.2.1は配布tarballから導入できます（npm公開は認証待ち）。起動手順は [配布・運用](docs/distribution.md) を参照してください。以下はソースからの起動手順です。
 
 ```sh
 git clone https://github.com/tako0614/vibe-coders.git
@@ -19,7 +19,7 @@ bun run init        # 現在の場所に atom.toml / AGENT.md を作成（既存
 bun run dev
 ```
 
-開発画面は **http://127.0.0.1:5173**。親AIは「設定・接続」で **Codexサブスク（ChatGPTログイン）** またはOpenAI互換APIを選べます。Codexを選ぶ場合はモデルを選んで「ログインして接続」を押します。ログイン済みなら「このモデルでチャットを始める」で接続できます。OpenAI互換APIの場合はURL・モデルID・APIキーを設定します。モデル未設定でも、設定・入力カード・ターミナルは利用できます。
+開発画面は **http://127.0.0.1:5173**。親AIは「設定・接続」で **Codexサブスク（ChatGPTログイン）** またはOpenAI互換APIを選べます。Codexは端末の既存認証を確認して「Codexを使う」で接続先を保存します。OpenAI互換APIはURLとAPIキーを保存します。どちらもモデルはチャット入力欄のpickerから検索・選択・直接入力できます。モデル未設定でも、設定・入力カード・ターミナルは利用できます。
 
 通常起動ではビルド済みReactをHonoから配信します。
 
@@ -101,3 +101,5 @@ DBのmigrationはバックエンド起動時に適用します。依存は `bun.
 0.2.0ではshellの入口を共通化し、DeckIDE型のデッキ・複数端末・最大化・手動引き継ぎを追加しました。専用native子実行を廃止し、PTYと継続的な標準入出力を同じ実行管理で扱います。Codex・OpenRouter・OpenAI互換APIは検索・直接入力ができるモデルpickerに対応し、Codexの保存済みauth.jsonを再ログインなしで利用します。[仕様と移行](docs/shell-workspace.md)・[検証記録](docs/debugging-0.2.0.md) を参照してください。0.1.8の会話要約・ファイル編集/復元・下書き・MCP導入は継続します。
 
 0.1.7の端末・デスクトップ改善は [端末の遅延と自動デスクトップ](docs/debugging-0.1.7.md)。0.1.6の修正と検証範囲は [動作修正と画面整理](docs/debugging-0.1.6.md)。設計全体は [plan.md](plan.md)、実装範囲・実機検証・外部条件待ちは [実装状況](docs/implementation.md)、配布方法は [配布・運用](docs/distribution.md) に記録しています。Codexサブスクによる親のファイル操作・記憶・人間入力と、親がMCPを登録して実Chromeを読むところまで確認しています。OpenAI互換APIの実接続、Claudeの再ログイン、各OSの実機検証などは残っています。
+
+0.2.1ではモデルpickerをチャット入力欄へ移し、接続設定とモデル選択を分けました。UIは白・グレー・黒を基調に整理し、モバイルのメニュー、会話検索と再読み込み時の復帰、入力欄の自動拡張、回答コピーを追加しています。Codexモデル一覧は会話DBを開かずに取得します。[検証記録](docs/debugging-0.2.1.md)。
