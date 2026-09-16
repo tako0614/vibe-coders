@@ -38,7 +38,10 @@ export async function fixture(
     directory: data,
     config,
     model: model || undefined,
-    codex,
+    codex: {
+      ...codex,
+      credentialFile: codex?.credentialFile || join(directory, 'codex-auth.json'),
+    },
     timers: false,
   });
   // Tests explicitly opt into network verification with a local provider fixture.
@@ -50,8 +53,25 @@ export async function fixture(
     root: directory,
     async dispose() {
       await runtime.close();
-      // Windows may release a terminated child's file handles after its exit event.
-      await rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      // Bun 1.3.14 on Windows returns EBUSY without honoring rm's maxRetries.
+      // Release deferred SQLite statements and allow child handles to close.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await rm(directory, { recursive: true, force: true });
+          break;
+        } catch (error) {
+          if (
+            process.platform !== 'win32' ||
+            attempt >= 10 ||
+            !['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'].includes(
+              (error as NodeJS.ErrnoException).code || '',
+            )
+          )
+            throw error;
+          Bun.gc(true);
+          await Bun.sleep(100 * (attempt + 1));
+        }
+      }
     },
   };
 }
